@@ -83,6 +83,11 @@ log_info "Installing binary to $INSTALL_DIR..."
 sudo cp "$BINARY_NAME" "$INSTALL_DIR/"
 sudo chmod +x "$INSTALL_DIR/$BINARY_NAME"
 
+# Create data directory for database
+log_info "Creating data directory..."
+sudo mkdir -p "$INSTALL_DIR/data"
+sudo chown nobody:nogroup "$INSTALL_DIR/data"
+
 # Create systemd service (optional, for production deployments)
 log_info "Creating systemd service..."
 sudo tee /etc/systemd/system/${SERVICE_NAME}.service > /dev/null <<EOF
@@ -106,6 +111,7 @@ CPUQuota=50%
 
 # Environment variables (customize as needed)
 Environment=RUST_LOG=info
+Environment=DATABASE_URL=sqlite:data/mini-server.db
 
 [Install]
 WantedBy=multi-user.target

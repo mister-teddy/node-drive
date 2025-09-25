@@ -7,7 +7,8 @@ async fn main() {
     tracing_subscriber::fmt::init();
 
     // Initialize database
-    let database_url = env::var("DATABASE_URL").unwrap_or_else(|_| "sqlite:data.db".to_string());
+    let database_url =
+        env::var("DATABASE_URL").expect("DATABASE_URL environment variable is required");
     let database = Arc::new(
         mini_server::database::Database::new(&database_url)
             .await
