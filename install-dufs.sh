@@ -6,7 +6,8 @@ set -e
 REPO_OWNER="sigoden"
 REPO_NAME="dufs"
 BINARY_NAME="dufs"
-INSTALL_DIR="$HOME/.local/bin"
+INSTALL_DIR="/opt/dufs"
+SERVICE_NAME="dufs"
 
 # Colors for output
 RED='\033[0;31m'
@@ -24,6 +25,14 @@ log_warn() {
 
 log_error() {
     echo -e "${RED}[ERROR]${NC} $1"
+}
+
+# Check if running as root
+check_root() {
+    if [[ $EUID -eq 0 ]]; then
+       log_error "This script should not be run as root for security reasons"
+       exit 1
+    fi
 }
 
 # Detect platform and architecture
@@ -100,10 +109,8 @@ check_dependencies() {
 
 # Create install directory
 create_install_dir() {
-    if [[ ! -d "$INSTALL_DIR" ]]; then
-        log_info "Creating install directory: $INSTALL_DIR"
-        mkdir -p "$INSTALL_DIR"
-    fi
+    log_info "Creating install directory..."
+    sudo mkdir -p "$INSTALL_DIR"
 }
 
 # Check if directory is in PATH
@@ -121,6 +128,9 @@ check_path() {
 
 main() {
     log_info "Installing dufs from ${REPO_OWNER}/${REPO_NAME}"
+
+    # Check if running as root
+    check_root
 
     # Check dependencies
     check_dependencies
@@ -205,25 +215,77 @@ main() {
     create_install_dir
 
     log_info "Installing binary to $INSTALL_DIR..."
-    cp "$binary_path" "$INSTALL_DIR/$BINARY_NAME"
-    chmod +x "$INSTALL_DIR/$BINARY_NAME"
+    sudo cp "$binary_path" "$INSTALL_DIR/$BINARY_NAME"
+    sudo chmod +x "$INSTALL_DIR/$BINARY_NAME"
 
-    # Check PATH
-    check_path
+    # Create systemd service
+    log_info "Creating systemd service..."
+    sudo tee /etc/systemd/system/${SERVICE_NAME}.service > /dev/null <<EOF
+[Unit]
+Description=Dufs File Server
+After=network.target
+
+[Service]
+Type=simple
+User=$USER
+WorkingDirectory=$INSTALL_DIR
+ExecStart=$INSTALL_DIR/$BINARY_NAME --bind 0.0.0.0 --port 80 $HOME/node-drive
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+# Security settings
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=no
+ReadWritePaths=$HOME/node-drive
+PrivateTmp=yes
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+
+# Environment variables
+Environment=RUST_LOG=info
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    # Ensure node-drive directory exists
+    log_info "Ensuring node-drive directory exists..."
+    if [[ ! -d "$HOME/node-drive" ]]; then
+        mkdir -p "$HOME/node-drive"
+        log_info "Created $HOME/node-drive directory"
+    fi
+
+    # Reload systemd and enable service
+    sudo systemctl daemon-reload
+    sudo systemctl enable ${SERVICE_NAME}
 
     # Verify installation
     if "$INSTALL_DIR/$BINARY_NAME" --version >/dev/null 2>&1; then
-        log_info "Installation successful!"
-        log_info "dufs installed to: $INSTALL_DIR/$BINARY_NAME"
+        log_info "Installation complete!"
+        log_info "Binary installed to: $INSTALL_DIR/$BINARY_NAME"
+        log_info "Service created: $SERVICE_NAME"
         log_info ""
-        log_info "Usage:"
-        log_info "  dufs [OPTIONS] [serve-path]"
+        log_info "To start the service:"
+        log_info "  sudo systemctl start $SERVICE_NAME"
         log_info ""
-        log_info "Examples:"
-        log_info "  dufs                    # Serve current directory"
-        log_info "  dufs /path/to/dir       # Serve specific directory"
-        log_info "  dufs -p 8080            # Serve on port 8080"
-        log_info "  dufs --help             # Show all options"
+        log_info "To check service status:"
+        log_info "  sudo systemctl status $SERVICE_NAME"
+        log_info ""
+        log_info "To view logs:"
+        log_info "  sudo journalctl -u $SERVICE_NAME -f"
+        log_info ""
+        log_info "To run manually (for testing):"
+        log_info "  cd $INSTALL_DIR && ./$BINARY_NAME"
+        log_info ""
+        # Get external IP address
+        local external_ip
+        external_ip=$(curl -4 -s ifconfig.me 2>/dev/null || curl -4 -s ipinfo.io/ip 2>/dev/null || echo "34.42.164.242")
+
+        log_info "Default configuration serves ~/node-drive on port 80"
+        log_info "Web interface will be available at: http://$external_ip"
     else
         log_error "Installation verification failed"
         exit 1
