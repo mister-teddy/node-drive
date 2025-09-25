@@ -3,7 +3,7 @@
 set -e
 
 # Configuration
-REPO_OWNER=${REPO_OWNER:-""}  # Set this to your GitHub username
+REPO_OWNER=${REPO_OWNER:-"mister-teddy"}  # Set this to your GitHub username
 REPO_NAME=${REPO_NAME:-"node-drive"}  # Or set via environment variable
 BINARY_NAME="mini-server"
 INSTALL_DIR="/opt/mini-server"
