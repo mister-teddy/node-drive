@@ -1,0 +1,39 @@
+# Rust build
+/target/
+**/*.rs.bk
+Cargo.lock
+
+# IDE/editor
+/.vscode/
+.idea/
+*.swp
+*.swo
+*.bak
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.*.local
+
+# Logs
+*.log
+
+# Misc
+node_modules/
+
+# Byproducts
+CACHEDIR.TAG
+
+# Coverage
+coverage/
+
+# Other
+*.tmp
+*.out
+*.old
+
+# Ignore test output
+/test-output/

@@ -1,0 +1,11 @@
+Generate metadata for a P2P app based on this prompt: "{}"
+
+Return a JSON object with these exact fields:
+- id: kebab-case identifier (e.g., "todo-list")
+- name: App display name
+- description: Brief description (under 100 chars)
+- version: Semantic version (e.g., "1.0.0")
+- price: Price in USD (0.00 for free apps)
+- icon: Single emoji that represents the app
+
+Respond with only valid JSON, no other text.
