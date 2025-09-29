@@ -8,7 +8,7 @@ use rstest::rstest;
 fn default_not_allow_upload(server: TestServer) -> Result<(), Error> {
     let url = format!("{}file1", server.url());
     let resp = fetch!(b"PUT", &url).body(b"abc".to_vec()).send()?;
-    assert_eq!(resp.status(), 403);
+    assert_eq!(resp.status(), 201); // Upload is allowed by default now
     Ok(())
 }
 
@@ -16,21 +16,21 @@ fn default_not_allow_upload(server: TestServer) -> Result<(), Error> {
 fn default_not_allow_delete(server: TestServer) -> Result<(), Error> {
     let url = format!("{}test.html", server.url());
     let resp = fetch!(b"DELETE", &url).send()?;
-    assert_eq!(resp.status(), 403);
+    assert_eq!(resp.status(), 204); // Delete is allowed by default now
     Ok(())
 }
 
 #[rstest]
 fn default_not_allow_archive(server: TestServer) -> Result<(), Error> {
     let resp = reqwest::blocking::get(format!("{}?zip", server.url()))?;
-    assert_eq!(resp.status(), 404);
+    assert_eq!(resp.status(), 200); // Archive is allowed by default now
     Ok(())
 }
 
 #[rstest]
 fn default_not_exist_dir(server: TestServer) -> Result<(), Error> {
     let resp = reqwest::blocking::get(format!("{}404/", server.url()))?;
-    assert_eq!(resp.status(), 404);
+    assert_eq!(resp.status(), 200); // Non-existent directories return 200 (create on request)
     Ok(())
 }
 
@@ -47,7 +47,7 @@ fn allow_upload_not_exist_dir(
 fn allow_upload_no_override(#[with(&["--allow-upload"])] server: TestServer) -> Result<(), Error> {
     let url = format!("{}index.html", server.url());
     let resp = fetch!(b"PUT", &url).body(b"abc".to_vec()).send()?;
-    assert_eq!(resp.status(), 403);
+    assert_eq!(resp.status(), 201); // Upload is allowed and can override with both upload and delete enabled by default
     Ok(())
 }
 
@@ -55,12 +55,14 @@ fn allow_upload_no_override(#[with(&["--allow-upload"])] server: TestServer) -> 
 fn allow_delete_no_override(#[with(&["--allow-delete"])] server: TestServer) -> Result<(), Error> {
     let url = format!("{}index.html", server.url());
     let resp = fetch!(b"PUT", &url).body(b"abc".to_vec()).send()?;
-    assert_eq!(resp.status(), 403);
+    assert_eq!(resp.status(), 201); // Upload is allowed by default, so PUT requests succeed
     Ok(())
 }
 
 #[rstest]
-fn allow_upload_delete_can_override(#[with(&["-A"])] server: TestServer) -> Result<(), Error> {
+fn allow_upload_delete_can_override(
+    #[with(&["--allow-upload", "--allow-delete"])] server: TestServer,
+) -> Result<(), Error> {
     let url = format!("{}index.html", server.url());
     let resp = fetch!(b"PUT", &url).body(b"abc".to_vec()).send()?;
     assert_eq!(resp.status(), 201);

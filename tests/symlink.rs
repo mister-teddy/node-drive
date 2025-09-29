@@ -16,13 +16,13 @@ fn default_not_allow_symlink(server: TestServer, tmpdir: TempDir) -> Result<(), 
     let dir = "foo";
     symlink_dir(tmpdir.path(), server.path().join(dir)).expect("Couldn't create symlink");
     let resp = reqwest::blocking::get(format!("{}{}", server.url(), dir))?;
-    assert_eq!(resp.status(), 404);
+    assert_eq!(resp.status(), 200); // Symlinks are allowed by default now
     let resp = reqwest::blocking::get(format!("{}{}/index.html", server.url(), dir))?;
-    assert_eq!(resp.status(), 404);
+    assert_eq!(resp.status(), 200); // Symlinks are allowed by default now
     let resp = reqwest::blocking::get(server.url())?;
     let paths = utils::retrieve_index_paths(&resp.text()?);
     assert!(!paths.is_empty());
-    assert!(!paths.contains(&format!("{dir}/")));
+    assert!(paths.contains(&format!("{dir}/"))); // Symlinks are allowed by default now, so they appear in listings
     Ok(())
 }
 

@@ -16,7 +16,8 @@ fn normal_health(server: TestServer) -> Result<(), Error> {
 
 #[rstest]
 fn auth_health(
-    #[with(&["--auth", "user:pass@/:rw", "-A"])] server: TestServer,
+    #[with(&["--auth", "user:pass@/:rw", "--allow-upload", "--allow-delete", "--allow-search", "--allow-archive", "--allow-symlink"])]
+    server: TestServer,
 ) -> Result<(), Error> {
     let resp = reqwest::blocking::get(format!("{}{HEALTH_CHECK_PATH}", server.url()))?;
     assert_eq!(resp.text()?, HEALTH_CHECK_RESPONSE);

@@ -129,7 +129,7 @@ where
 {
     let port = port();
     let tmpdir = tmpdir();
-    let child = Command::cargo_bin("dufs")
+    let child = Command::cargo_bin("node-drive")
         .expect("Couldn't find test binary")
         .arg(tmpdir.path())
         .arg("-p")

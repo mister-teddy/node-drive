@@ -36,7 +36,7 @@ fn tls_works(#[case] server: TestServer) -> Result<(), Error> {
 #[rstest]
 fn wrong_path_cert() -> Result<(), Error> {
     let port = port().to_string();
-    Command::cargo_bin("dufs")?
+    Command::cargo_bin("node-drive")?
         .args([
             "--tls-cert",
             "wrong",
@@ -56,7 +56,7 @@ fn wrong_path_cert() -> Result<(), Error> {
 #[rstest]
 fn wrong_path_key() -> Result<(), Error> {
     let port = port().to_string();
-    Command::cargo_bin("dufs")?
+    Command::cargo_bin("node-drive")?
         .args([
             "--tls-cert",
             "tests/data/cert.pem",

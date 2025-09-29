@@ -20,7 +20,7 @@ fn log_remote_user(
     #[case] args: &[&str],
     #[case] is_basic: bool,
 ) -> Result<(), Error> {
-    let mut child = Command::cargo_bin("dufs")?
+    let mut child = Command::cargo_bin("node-drive")?
         .arg(tmpdir.path())
         .arg("-p")
         .arg(port.to_string())
@@ -55,7 +55,7 @@ fn log_remote_user(
 #[rstest]
 #[case(&["--log-format", ""])]
 fn no_log(tmpdir: TempDir, port: u16, #[case] args: &[&str]) -> Result<(), Error> {
-    let mut child = Command::cargo_bin("dufs")?
+    let mut child = Command::cargo_bin("node-drive")?
         .arg(tmpdir.path())
         .arg("-p")
         .arg(port.to_string())

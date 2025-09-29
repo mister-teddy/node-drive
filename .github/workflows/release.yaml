@@ -188,3 +188,29 @@ jobs:
   #       env:
   #         CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_API_TOKEN }}
   #       run: cargo publish
+
+  deploy-to-gcp:
+    name: Deploy to GCP VPS
+    if: ${{ needs.release.outputs.rc == 'false' }}
+    runs-on: ubuntu-latest
+    needs: release
+    steps:
+      - name: Deploy to VPS
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.GCP_VPS_HOST }}
+          username: ${{ secrets.GCP_VPS_USER }}
+          key: ${{ secrets.GCP_VPS_SSH_KEY }}
+          script: |
+            # Stop existing service if running
+            sudo systemctl stop node-drive || true
+
+            # Download and run install script
+            curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/main/install.sh | bash
+
+            # Start the service
+            sudo systemctl start node-drive
+
+            # Verify deployment
+            sleep 5
+            sudo systemctl status node-drive

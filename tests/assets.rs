@@ -101,7 +101,7 @@ fn asset_js_with_prefix(
 
 #[rstest]
 fn assets_override(tmpdir: TempDir, port: u16) -> Result<(), Error> {
-    let mut child = Command::cargo_bin("dufs")?
+    let mut child = Command::cargo_bin("node-drive")?
         .arg(tmpdir.path())
         .arg("-p")
         .arg(port.to_string())

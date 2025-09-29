@@ -13,7 +13,7 @@ use std::process::{Command, Stdio};
 #[rstest]
 fn use_config_file(tmpdir: TempDir, port: u16) -> Result<(), Error> {
     let config_path = get_config_path().display().to_string();
-    let mut child = Command::cargo_bin("dufs")?
+    let mut child = Command::cargo_bin("node-drive")?
         .arg(tmpdir.path())
         .arg("-p")
         .arg(port.to_string())

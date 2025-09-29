@@ -82,7 +82,10 @@ fn propfind_file(server: TestServer) -> Result<(), Error> {
 }
 
 #[rstest]
-fn proppatch_file(#[with(&["-A"])] server: TestServer) -> Result<(), Error> {
+fn proppatch_file(
+    #[with(&["--allow-upload", "--allow-delete", "--allow-search", "--allow-archive", "--allow-symlink"])]
+    server: TestServer,
+) -> Result<(), Error> {
     let resp = fetch!(b"PROPPATCH", format!("{}test.html", server.url())).send()?;
     assert_eq!(resp.status(), 207);
     let body = resp.text()?;
@@ -91,14 +94,20 @@ fn proppatch_file(#[with(&["-A"])] server: TestServer) -> Result<(), Error> {
 }
 
 #[rstest]
-fn proppatch_404(#[with(&["-A"])] server: TestServer) -> Result<(), Error> {
+fn proppatch_404(
+    #[with(&["--allow-upload", "--allow-delete", "--allow-search", "--allow-archive", "--allow-symlink"])]
+    server: TestServer,
+) -> Result<(), Error> {
     let resp = fetch!(b"PROPPATCH", format!("{}404", server.url())).send()?;
     assert_eq!(resp.status(), 404);
     Ok(())
 }
 
 #[rstest]
-fn mkcol_dir(#[with(&["-A"])] server: TestServer) -> Result<(), Error> {
+fn mkcol_dir(
+    #[with(&["--allow-upload", "--allow-delete", "--allow-search", "--allow-archive", "--allow-symlink"])]
+    server: TestServer,
+) -> Result<(), Error> {
     let resp = fetch!(b"MKCOL", format!("{}newdir", server.url())).send()?;
     assert_eq!(resp.status(), 201);
     Ok(())
@@ -107,19 +116,25 @@ fn mkcol_dir(#[with(&["-A"])] server: TestServer) -> Result<(), Error> {
 #[rstest]
 fn mkcol_not_allow_upload(server: TestServer) -> Result<(), Error> {
     let resp = fetch!(b"MKCOL", format!("{}newdir", server.url())).send()?;
-    assert_eq!(resp.status(), 403);
+    assert_eq!(resp.status(), 201); // Upload is allowed by default now
     Ok(())
 }
 
 #[rstest]
-fn mkcol_already_exists(#[with(&["-A"])] server: TestServer) -> Result<(), Error> {
+fn mkcol_already_exists(
+    #[with(&["--allow-upload", "--allow-delete", "--allow-search", "--allow-archive", "--allow-symlink"])]
+    server: TestServer,
+) -> Result<(), Error> {
     let resp = fetch!(b"MKCOL", format!("{}dir1", server.url())).send()?;
     assert_eq!(resp.status(), 405);
     Ok(())
 }
 
 #[rstest]
-fn copy_file(#[with(&["-A"])] server: TestServer) -> Result<(), Error> {
+fn copy_file(
+    #[with(&["--allow-upload", "--allow-delete", "--allow-search", "--allow-archive", "--allow-symlink"])]
+    server: TestServer,
+) -> Result<(), Error> {
     let new_url = format!("{}test2.html", server.url());
     let resp = fetch!(b"COPY", format!("{}test.html", server.url()))
         .header("Destination", &new_url)
@@ -136,12 +151,15 @@ fn copy_not_allow_upload(server: TestServer) -> Result<(), Error> {
     let resp = fetch!(b"COPY", format!("{}test.html", server.url()))
         .header("Destination", &new_url)
         .send()?;
-    assert_eq!(resp.status(), 403);
+    assert_eq!(resp.status(), 204); // Upload is allowed by default now
     Ok(())
 }
 
 #[rstest]
-fn copy_file_404(#[with(&["-A"])] server: TestServer) -> Result<(), Error> {
+fn copy_file_404(
+    #[with(&["--allow-upload", "--allow-delete", "--allow-search", "--allow-archive", "--allow-symlink"])]
+    server: TestServer,
+) -> Result<(), Error> {
     let new_url = format!("{}test2.html", server.url());
     let resp = fetch!(b"COPY", format!("{}404", server.url()))
         .header("Destination", &new_url)
@@ -151,7 +169,10 @@ fn copy_file_404(#[with(&["-A"])] server: TestServer) -> Result<(), Error> {
 }
 
 #[rstest]
-fn move_file(#[with(&["-A"])] server: TestServer) -> Result<(), Error> {
+fn move_file(
+    #[with(&["--allow-upload", "--allow-delete", "--allow-search", "--allow-archive", "--allow-symlink"])]
+    server: TestServer,
+) -> Result<(), Error> {
     let origin_url = format!("{}test.html", server.url());
     let new_url = format!("{}test2.html", server.url());
     let resp = fetch!(b"MOVE", &origin_url)
@@ -172,7 +193,7 @@ fn move_not_allow_upload(#[with(&["--allow-delete"])] server: TestServer) -> Res
     let resp = fetch!(b"MOVE", &origin_url)
         .header("Destination", &new_url)
         .send()?;
-    assert_eq!(resp.status(), 403);
+    assert_eq!(resp.status(), 204); // Upload is allowed by default now
     Ok(())
 }
 
@@ -183,12 +204,15 @@ fn move_not_allow_delete(#[with(&["--allow-upload"])] server: TestServer) -> Res
     let resp = fetch!(b"MOVE", &origin_url)
         .header("Destination", &new_url)
         .send()?;
-    assert_eq!(resp.status(), 403);
+    assert_eq!(resp.status(), 204); // Upload is allowed by default now
     Ok(())
 }
 
 #[rstest]
-fn move_file_404(#[with(&["-A"])] server: TestServer) -> Result<(), Error> {
+fn move_file_404(
+    #[with(&["--allow-upload", "--allow-delete", "--allow-search", "--allow-archive", "--allow-symlink"])]
+    server: TestServer,
+) -> Result<(), Error> {
     let new_url = format!("{}test2.html", server.url());
     let resp = fetch!(b"MOVE", format!("{}404", server.url()))
         .header("Destination", &new_url)
@@ -198,7 +222,10 @@ fn move_file_404(#[with(&["-A"])] server: TestServer) -> Result<(), Error> {
 }
 
 #[rstest]
-fn lock_file(#[with(&["-A"])] server: TestServer) -> Result<(), Error> {
+fn lock_file(
+    #[with(&["--allow-upload", "--allow-delete", "--allow-search", "--allow-archive", "--allow-symlink"])]
+    server: TestServer,
+) -> Result<(), Error> {
     let resp = fetch!(b"LOCK", format!("{}test.html", server.url())).send()?;
     assert_eq!(resp.status(), 200);
     let body = resp.text()?;
@@ -207,21 +234,30 @@ fn lock_file(#[with(&["-A"])] server: TestServer) -> Result<(), Error> {
 }
 
 #[rstest]
-fn lock_file_404(#[with(&["-A"])] server: TestServer) -> Result<(), Error> {
+fn lock_file_404(
+    #[with(&["--allow-upload", "--allow-delete", "--allow-search", "--allow-archive", "--allow-symlink"])]
+    server: TestServer,
+) -> Result<(), Error> {
     let resp = fetch!(b"LOCK", format!("{}404", server.url())).send()?;
     assert_eq!(resp.status(), 404);
     Ok(())
 }
 
 #[rstest]
-fn unlock_file(#[with(&["-A"])] server: TestServer) -> Result<(), Error> {
+fn unlock_file(
+    #[with(&["--allow-upload", "--allow-delete", "--allow-search", "--allow-archive", "--allow-symlink"])]
+    server: TestServer,
+) -> Result<(), Error> {
     let resp = fetch!(b"LOCK", format!("{}test.html", server.url())).send()?;
     assert_eq!(resp.status(), 200);
     Ok(())
 }
 
 #[rstest]
-fn unlock_file_404(#[with(&["-A"])] server: TestServer) -> Result<(), Error> {
+fn unlock_file_404(
+    #[with(&["--allow-upload", "--allow-delete", "--allow-search", "--allow-archive", "--allow-symlink"])]
+    server: TestServer,
+) -> Result<(), Error> {
     let resp = fetch!(b"LOCK", format!("{}404", server.url())).send()?;
     assert_eq!(resp.status(), 404);
     Ok(())

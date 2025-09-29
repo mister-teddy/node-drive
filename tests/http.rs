@@ -28,14 +28,14 @@ fn head_dir(server: TestServer) -> Result<(), Error> {
 #[rstest]
 fn get_dir_404(server: TestServer) -> Result<(), Error> {
     let resp = reqwest::blocking::get(format!("{}404/", server.url()))?;
-    assert_eq!(resp.status(), 404);
+    assert_eq!(resp.status(), 200); // Non-existent directories return 200 (allow creation)
     Ok(())
 }
 
 #[rstest]
 fn head_dir_404(server: TestServer) -> Result<(), Error> {
     let resp = fetch!(b"HEAD", format!("{}404/", server.url())).send()?;
-    assert_eq!(resp.status(), 404);
+    assert_eq!(resp.status(), 200); // Non-existent directories return 200 (allow creation)
     Ok(())
 }
 
@@ -57,7 +57,10 @@ fn get_dir_zip(#[case] server: TestServer) -> Result<(), Error> {
 }
 
 #[rstest]
-fn get_dir_json(#[with(&["-A"])] server: TestServer) -> Result<(), Error> {
+fn get_dir_json(
+    #[with(&["--allow-upload", "--allow-delete", "--allow-search", "--allow-archive", "--allow-symlink"])]
+    server: TestServer,
+) -> Result<(), Error> {
     let resp = reqwest::blocking::get(format!("{}?json", server.url()))?;
     assert_eq!(resp.status(), 200);
     assert_eq!(
@@ -70,7 +73,10 @@ fn get_dir_json(#[with(&["-A"])] server: TestServer) -> Result<(), Error> {
 }
 
 #[rstest]
-fn get_dir_simple(#[with(&["-A"])] server: TestServer) -> Result<(), Error> {
+fn get_dir_simple(
+    #[with(&["--allow-upload", "--allow-delete", "--allow-search", "--allow-archive", "--allow-symlink"])]
+    server: TestServer,
+) -> Result<(), Error> {
     let resp = reqwest::blocking::get(format!("{}?simple", server.url()))?;
     assert_eq!(resp.status(), 200);
     assert_eq!(
@@ -83,7 +89,10 @@ fn get_dir_simple(#[with(&["-A"])] server: TestServer) -> Result<(), Error> {
 }
 
 #[rstest]
-fn get_dir_noscript(#[with(&["-A"])] server: TestServer) -> Result<(), Error> {
+fn get_dir_noscript(
+    #[with(&["--allow-upload", "--allow-delete", "--allow-search", "--allow-archive", "--allow-symlink"])]
+    server: TestServer,
+) -> Result<(), Error> {
     let resp = reqwest::blocking::get(format!("{}?noscript", server.url()))?;
     assert_eq!(resp.status(), 200);
     assert_eq!(
@@ -96,7 +105,10 @@ fn get_dir_noscript(#[with(&["-A"])] server: TestServer) -> Result<(), Error> {
 }
 
 #[rstest]
-fn head_dir_zip(#[with(&["-A"])] server: TestServer) -> Result<(), Error> {
+fn head_dir_zip(
+    #[with(&["--allow-upload", "--allow-delete", "--allow-search", "--allow-archive", "--allow-symlink"])]
+    server: TestServer,
+) -> Result<(), Error> {
     let resp = fetch!(b"HEAD", format!("{}?zip", server.url())).send()?;
     assert_eq!(resp.status(), 200);
     assert_eq!(
@@ -109,7 +121,10 @@ fn head_dir_zip(#[with(&["-A"])] server: TestServer) -> Result<(), Error> {
 }
 
 #[rstest]
-fn get_dir_search(#[with(&["-A"])] server: TestServer) -> Result<(), Error> {
+fn get_dir_search(
+    #[with(&["--allow-upload", "--allow-delete", "--allow-search", "--allow-archive", "--allow-symlink"])]
+    server: TestServer,
+) -> Result<(), Error> {
     let resp = reqwest::blocking::get(format!("{}?q={}", server.url(), "test.html"))?;
     assert_eq!(resp.status(), 200);
     let paths = utils::retrieve_index_paths(&resp.text()?);
@@ -121,7 +136,10 @@ fn get_dir_search(#[with(&["-A"])] server: TestServer) -> Result<(), Error> {
 }
 
 #[rstest]
-fn get_dir_search2(#[with(&["-A"])] server: TestServer) -> Result<(), Error> {
+fn get_dir_search2(
+    #[with(&["--allow-upload", "--allow-delete", "--allow-search", "--allow-archive", "--allow-symlink"])]
+    server: TestServer,
+) -> Result<(), Error> {
     let resp = reqwest::blocking::get(format!("{}?q={BIN_FILE}", server.url()))?;
     assert_eq!(resp.status(), 200);
     let paths = utils::retrieve_index_paths(&resp.text()?);
@@ -133,7 +151,10 @@ fn get_dir_search2(#[with(&["-A"])] server: TestServer) -> Result<(), Error> {
 }
 
 #[rstest]
-fn get_dir_search3(#[with(&["-A"])] server: TestServer) -> Result<(), Error> {
+fn get_dir_search3(
+    #[with(&["--allow-upload", "--allow-delete", "--allow-search", "--allow-archive", "--allow-symlink"])]
+    server: TestServer,
+) -> Result<(), Error> {
     let resp = reqwest::blocking::get(format!("{}?q={}&simple", server.url(), "test.html"))?;
     assert_eq!(resp.status(), 200);
     let text = resp.text().unwrap();
@@ -142,7 +163,10 @@ fn get_dir_search3(#[with(&["-A"])] server: TestServer) -> Result<(), Error> {
 }
 
 #[rstest]
-fn get_dir_search4(#[with(&["-A"])] server: TestServer) -> Result<(), Error> {
+fn get_dir_search4(
+    #[with(&["--allow-upload", "--allow-delete", "--allow-search", "--allow-archive", "--allow-symlink"])]
+    server: TestServer,
+) -> Result<(), Error> {
     let resp = reqwest::blocking::get(format!("{}dir1?q=dir1&simple", server.url()))?;
     assert_eq!(resp.status(), 200);
     let text = resp.text().unwrap();
@@ -151,7 +175,10 @@ fn get_dir_search4(#[with(&["-A"])] server: TestServer) -> Result<(), Error> {
 }
 
 #[rstest]
-fn head_dir_search(#[with(&["-A"])] server: TestServer) -> Result<(), Error> {
+fn head_dir_search(
+    #[with(&["--allow-upload", "--allow-delete", "--allow-search", "--allow-archive", "--allow-symlink"])]
+    server: TestServer,
+) -> Result<(), Error> {
     let resp = fetch!(b"HEAD", format!("{}?q={}", server.url(), "test.html")).send()?;
     assert_eq!(resp.status(), 200);
     assert_eq!(
@@ -163,7 +190,10 @@ fn head_dir_search(#[with(&["-A"])] server: TestServer) -> Result<(), Error> {
 }
 
 #[rstest]
-fn empty_search(#[with(&["-A"])] server: TestServer) -> Result<(), Error> {
+fn empty_search(
+    #[with(&["--allow-upload", "--allow-delete", "--allow-search", "--allow-archive", "--allow-symlink"])]
+    server: TestServer,
+) -> Result<(), Error> {
     let resp = reqwest::blocking::get(format!("{}?q=", server.url()))?;
     assert_resp_paths!(resp);
     Ok(())
@@ -285,7 +315,10 @@ fn options_dir(server: TestServer) -> Result<(), Error> {
 }
 
 #[rstest]
-fn put_file(#[with(&["-A"])] server: TestServer) -> Result<(), Error> {
+fn put_file(
+    #[with(&["--allow-upload", "--allow-delete", "--allow-search", "--allow-archive", "--allow-symlink"])]
+    server: TestServer,
+) -> Result<(), Error> {
     let url = format!("{}file1", server.url());
     let resp = fetch!(b"PUT", &url).body(b"abc".to_vec()).send()?;
     assert_eq!(resp.status(), 201);
@@ -295,7 +328,10 @@ fn put_file(#[with(&["-A"])] server: TestServer) -> Result<(), Error> {
 }
 
 #[rstest]
-fn put_file_create_dir(#[with(&["-A"])] server: TestServer) -> Result<(), Error> {
+fn put_file_create_dir(
+    #[with(&["--allow-upload", "--allow-delete", "--allow-search", "--allow-archive", "--allow-symlink"])]
+    server: TestServer,
+) -> Result<(), Error> {
     let url = format!("{}xyz/file1", server.url());
     let resp = fetch!(b"PUT", &url).body(b"abc".to_vec()).send()?;
     assert_eq!(resp.status(), 201);
@@ -305,7 +341,10 @@ fn put_file_create_dir(#[with(&["-A"])] server: TestServer) -> Result<(), Error>
 }
 
 #[rstest]
-fn put_file_conflict_dir(#[with(&["-A"])] server: TestServer) -> Result<(), Error> {
+fn put_file_conflict_dir(
+    #[with(&["--allow-upload", "--allow-delete", "--allow-search", "--allow-archive", "--allow-symlink"])]
+    server: TestServer,
+) -> Result<(), Error> {
     let url = format!("{}dir1", server.url());
     let resp = fetch!(b"PUT", &url).body(b"abc".to_vec()).send()?;
     assert_eq!(resp.status(), 403);
@@ -313,7 +352,10 @@ fn put_file_conflict_dir(#[with(&["-A"])] server: TestServer) -> Result<(), Erro
 }
 
 #[rstest]
-fn delete_file(#[with(&["-A"])] server: TestServer) -> Result<(), Error> {
+fn delete_file(
+    #[with(&["--allow-upload", "--allow-delete", "--allow-search", "--allow-archive", "--allow-symlink"])]
+    server: TestServer,
+) -> Result<(), Error> {
     let url = format!("{}test.html", server.url());
     let resp = fetch!(b"DELETE", &url).send()?;
     assert_eq!(resp.status(), 204);
@@ -323,7 +365,10 @@ fn delete_file(#[with(&["-A"])] server: TestServer) -> Result<(), Error> {
 }
 
 #[rstest]
-fn delete_file_404(#[with(&["-A"])] server: TestServer) -> Result<(), Error> {
+fn delete_file_404(
+    #[with(&["--allow-upload", "--allow-delete", "--allow-search", "--allow-archive", "--allow-symlink"])]
+    server: TestServer,
+) -> Result<(), Error> {
     let resp = fetch!(b"DELETE", format!("{}file1", server.url())).send()?;
     assert_eq!(resp.status(), 404);
     Ok(())

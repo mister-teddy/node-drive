@@ -8,7 +8,10 @@ use indexmap::IndexSet;
 use rstest::rstest;
 
 #[rstest]
-fn no_auth(#[with(&["--auth", "user:pass@/:rw", "-A"])] server: TestServer) -> Result<(), Error> {
+fn no_auth(
+    #[with(&["--auth", "user:pass@/:rw", "--allow-upload", "--allow-delete", "--allow-search", "--allow-archive", "--allow-symlink"])]
+    server: TestServer,
+) -> Result<(), Error> {
     let resp = reqwest::blocking::get(server.url())?;
     assert_eq!(resp.status(), 401);
     let values: Vec<&str> = resp
@@ -27,8 +30,8 @@ fn no_auth(#[with(&["--auth", "user:pass@/:rw", "-A"])] server: TestServer) -> R
 }
 
 #[rstest]
-#[case(server(&["--auth", "user:pass@/:rw", "-A"]), "user", "pass")]
-#[case(server(&["--auth", "user:pa:ss@1@/:rw", "-A"]), "user", "pa:ss@1")]
+#[case(server(&["--auth", "user:pass@/:rw", "--allow-upload", "--allow-delete", "--allow-search", "--allow-archive", "--allow-symlink"]), "user", "pass")]
+#[case(server(&["--auth", "user:pa:ss@1@/:rw", "--allow-upload", "--allow-delete", "--allow-search", "--allow-archive", "--allow-symlink"]), "user", "pa:ss@1")]
 fn auth(#[case] server: TestServer, #[case] user: &str, #[case] pass: &str) -> Result<(), Error> {
     let url = format!("{}file1", server.url());
     let resp = fetch!(b"PUT", &url).body(b"abc".to_vec()).send()?;
@@ -40,7 +43,8 @@ fn auth(#[case] server: TestServer, #[case] user: &str, #[case] pass: &str) -> R
 
 #[rstest]
 fn invalid_auth(
-    #[with(&["-a", "user:pass@/:rw", "-a", "@/", "-A"])] server: TestServer,
+    #[with(&["-a", "user:pass@/:rw", "-a", "@/", "--allow-upload", "--allow-delete", "--allow-search", "--allow-archive", "--allow-symlink"])]
+    server: TestServer,
 ) -> Result<(), Error> {
     let resp = fetch!(b"GET", server.url())
         .basic_auth("user", Some("-"))
@@ -58,8 +62,8 @@ fn invalid_auth(
 }
 
 #[rstest]
-#[case(server(&["--auth", "user:$6$gQxZwKyWn/ZmWEA2$4uV7KKMnSUnET2BtWTj/9T5.Jq3h/MdkOlnIl5hdlTxDZ4MZKmJ.kl6C.NL9xnNPqC4lVHC1vuI0E5cLpTJX81@/:rw", "-A"]), "user", "pass")]
-#[case(server(&["--auth", "user:$6$YV1J6OHZAAgbzCbS$V55ZEgvJ6JFdz1nLO4AD696PRHAJYhfQf.Gy2HafrCz5itnbgNTtTgfUSqZrt4BJ7FcpRfSt/QZzAan68pido0@/:rw", "-A"]), "user", "pa:ss@1")]
+#[case(server(&["--auth", "user:$6$gQxZwKyWn/ZmWEA2$4uV7KKMnSUnET2BtWTj/9T5.Jq3h/MdkOlnIl5hdlTxDZ4MZKmJ.kl6C.NL9xnNPqC4lVHC1vuI0E5cLpTJX81@/:rw", "--allow-upload", "--allow-delete", "--allow-search", "--allow-archive", "--allow-symlink"]), "user", "pass")]
+#[case(server(&["--auth", "user:$6$YV1J6OHZAAgbzCbS$V55ZEgvJ6JFdz1nLO4AD696PRHAJYhfQf.Gy2HafrCz5itnbgNTtTgfUSqZrt4BJ7FcpRfSt/QZzAan68pido0@/:rw", "--allow-upload", "--allow-delete", "--allow-search", "--allow-archive", "--allow-symlink"]), "user", "pa:ss@1")]
 fn auth_hashed_password(
     #[case] server: TestServer,
     #[case] user: &str,
@@ -85,7 +89,8 @@ fn auth_hashed_password(
 
 #[rstest]
 fn auth_and_public(
-    #[with(&["-a", "user:pass@/:rw", "-a", "@/", "-A"])] server: TestServer,
+    #[with(&["-a", "user:pass@/:rw", "-a", "@/", "--allow-upload", "--allow-delete", "--allow-search", "--allow-archive", "--allow-symlink"])]
+    server: TestServer,
 ) -> Result<(), Error> {
     let url = format!("{}file1", server.url());
     let resp = fetch!(b"PUT", &url).body(b"abc".to_vec()).send()?;
@@ -145,7 +150,8 @@ fn auth_no_skip_if_anonymous(
 
 #[rstest]
 fn auth_check(
-    #[with(&["--auth", "user:pass@/:rw", "--auth", "user2:pass2@/", "-A"])] server: TestServer,
+    #[with(&["--auth", "user:pass@/:rw", "--auth", "user2:pass2@/", "--allow-upload", "--allow-delete", "--allow-search", "--allow-archive", "--allow-symlink"])]
+    server: TestServer,
 ) -> Result<(), Error> {
     let url = format!("{}", server.url());
     let resp = fetch!(b"CHECKAUTH", &url).send()?;
@@ -159,7 +165,8 @@ fn auth_check(
 
 #[rstest]
 fn auth_check2(
-    #[with(&["--auth", "user:pass@/:rw|user2:pass2@/", "-A"])] server: TestServer,
+    #[with(&["--auth", "user:pass@/:rw|user2:pass2@/", "--allow-upload", "--allow-delete", "--allow-search", "--allow-archive", "--allow-symlink"])]
+    server: TestServer,
 ) -> Result<(), Error> {
     let url = format!("{}", server.url());
     let resp = fetch!(b"CHECKAUTH", &url).send()?;
@@ -173,7 +180,8 @@ fn auth_check2(
 
 #[rstest]
 fn auth_check3(
-    #[with(&["--auth", "user:pass@/:rw", "--auth", "@/dir1:rw", "-A"])] server: TestServer,
+    #[with(&["--auth", "user:pass@/:rw", "--auth", "@/dir1:rw", "--allow-upload", "--allow-delete", "--allow-search", "--allow-archive", "--allow-symlink"])]
+    server: TestServer,
 ) -> Result<(), Error> {
     let url = format!("{}dir1/", server.url());
     let resp = fetch!(b"CHECKAUTH", &url).send()?;
@@ -185,7 +193,8 @@ fn auth_check3(
 
 #[rstest]
 fn auth_logout(
-    #[with(&["--auth", "user:pass@/:rw", "-A"])] server: TestServer,
+    #[with(&["--auth", "user:pass@/:rw", "--allow-upload", "--allow-delete", "--allow-search", "--allow-archive", "--allow-symlink"])]
+    server: TestServer,
 ) -> Result<(), Error> {
     let url = format!("{}index.html", server.url());
     let resp = fetch!(b"LOGOUT", &url).send()?;
@@ -197,7 +206,8 @@ fn auth_logout(
 
 #[rstest]
 fn auth_readonly(
-    #[with(&["--auth", "user:pass@/:rw", "--auth", "user2:pass2@/", "-A"])] server: TestServer,
+    #[with(&["--auth", "user:pass@/:rw", "--auth", "user2:pass2@/", "--allow-upload", "--allow-delete", "--allow-search", "--allow-archive", "--allow-symlink"])]
+    server: TestServer,
 ) -> Result<(), Error> {
     let url = format!("{}index.html", server.url());
     let resp = fetch!(b"GET", &url).send()?;
@@ -212,7 +222,7 @@ fn auth_readonly(
 
 #[rstest]
 fn auth_nest(
-    #[with(&["--auth", "user:pass@/:rw", "--auth", "user2:pass2@/", "--auth", "user3:pass3@/dir1:rw", "-A"])]
+    #[with(&["--auth", "user:pass@/:rw", "--auth", "user2:pass2@/", "--auth", "user3:pass3@/dir1:rw", "--allow-upload", "--allow-delete", "--allow-search", "--allow-archive", "--allow-symlink"])]
     server: TestServer,
 ) -> Result<(), Error> {
     let url = format!("{}dir1/file1", server.url());
@@ -227,7 +237,7 @@ fn auth_nest(
 
 #[rstest]
 fn auth_nest_share(
-    #[with(&["--auth", "@/", "--auth", "user:pass@/:rw", "--auth", "user3:pass3@/dir1:rw", "-A"])]
+    #[with(&["--auth", "@/", "--auth", "user:pass@/:rw", "--auth", "user3:pass3@/dir1:rw", "--allow-upload", "--allow-delete", "--allow-search", "--allow-archive", "--allow-symlink"])]
     server: TestServer,
 ) -> Result<(), Error> {
     let url = format!("{}index.html", server.url());
@@ -237,8 +247,8 @@ fn auth_nest_share(
 }
 
 #[rstest]
-#[case(server(&["--auth", "user:pass@/:rw", "-A"]), "user", "pass")]
-#[case(server(&["--auth", "u1:p1@/:rw", "-A"]), "u1", "p1")]
+#[case(server(&["--auth", "user:pass@/:rw", "--allow-upload", "--allow-delete", "--allow-search", "--allow-archive", "--allow-symlink"]), "user", "pass")]
+#[case(server(&["--auth", "u1:p1@/:rw", "--allow-upload", "--allow-delete", "--allow-search", "--allow-archive", "--allow-symlink"]), "u1", "p1")]
 fn auth_basic(
     #[case] server: TestServer,
     #[case] user: &str,
@@ -257,7 +267,7 @@ fn auth_basic(
 
 #[rstest]
 fn auth_webdav_move(
-    #[with(&["--auth", "user:pass@/:rw", "--auth", "user3:pass3@/dir1:rw", "-A"])]
+    #[with(&["--auth", "user:pass@/:rw", "--auth", "user3:pass3@/dir1:rw", "--allow-upload", "--allow-delete", "--allow-search", "--allow-archive", "--allow-symlink"])]
     server: TestServer,
 ) -> Result<(), Error> {
     let origin_url = format!("{}dir1/test.html", server.url());
@@ -273,7 +283,7 @@ fn auth_webdav_move(
 
 #[rstest]
 fn auth_webdav_copy(
-    #[with(&["--auth", "user:pass@/:rw", "--auth", "user3:pass3@/dir1:rw", "-A"])]
+    #[with(&["--auth", "user:pass@/:rw", "--auth", "user3:pass3@/dir1:rw", "--allow-upload", "--allow-delete", "--allow-search", "--allow-archive", "--allow-symlink"])]
     server: TestServer,
 ) -> Result<(), Error> {
     let origin_url = format!("{}dir1/test.html", server.url());
@@ -289,7 +299,8 @@ fn auth_webdav_copy(
 
 #[rstest]
 fn auth_path_prefix(
-    #[with(&["--auth", "user:pass@/:rw", "--path-prefix", "xyz", "-A"])] server: TestServer,
+    #[with(&["--auth", "user:pass@/:rw", "--path-prefix", "xyz", "--allow-upload", "--allow-delete", "--allow-search", "--allow-archive", "--allow-symlink"])]
+    server: TestServer,
 ) -> Result<(), Error> {
     let url = format!("{}xyz/index.html", server.url());
     let resp = fetch!(b"GET", &url).send()?;
@@ -301,7 +312,8 @@ fn auth_path_prefix(
 
 #[rstest]
 fn auth_partial_index(
-    #[with(&["--auth", "user:pass@/dir1:rw,/dir2:rw", "-A"])] server: TestServer,
+    #[with(&["--auth", "user:pass@/dir1:rw,/dir2:rw", "--allow-upload", "--allow-delete", "--allow-search", "--allow-archive", "--allow-symlink"])]
+    server: TestServer,
 ) -> Result<(), Error> {
     let resp = send_with_digest_auth(fetch!(b"GET", server.url()), "user", "pass")?;
     assert_eq!(resp.status(), 200);
@@ -323,7 +335,8 @@ fn auth_partial_index(
 
 #[rstest]
 fn no_auth_propfind_dir(
-    #[with(&["--auth", "admin:admin@/:rw", "--auth", "@/dir-assets", "-A"])] server: TestServer,
+    #[with(&["--auth", "admin:admin@/:rw", "--auth", "@/dir-assets", "--allow-upload", "--allow-delete", "--allow-search", "--allow-archive", "--allow-symlink"])]
+    server: TestServer,
 ) -> Result<(), Error> {
     let resp = fetch!(b"PROPFIND", server.url()).send()?;
     assert_eq!(resp.status(), 207);
@@ -335,7 +348,7 @@ fn no_auth_propfind_dir(
 
 #[rstest]
 fn auth_propfind_dir(
-    #[with(&["--auth", "admin:admin@/:rw", "--auth", "user:pass@/dir-assets", "-A"])]
+    #[with(&["--auth", "admin:admin@/:rw", "--auth", "user:pass@/dir-assets", "--allow-upload", "--allow-delete", "--allow-search", "--allow-archive", "--allow-symlink"])]
     server: TestServer,
 ) -> Result<(), Error> {
     let resp = send_with_digest_auth(fetch!(b"PROPFIND", server.url()), "user", "pass")?;
@@ -348,7 +361,8 @@ fn auth_propfind_dir(
 
 #[rstest]
 fn auth_data(
-    #[with(&["-a", "user:pass@/:rw", "-a", "@/", "-A"])] server: TestServer,
+    #[with(&["-a", "user:pass@/:rw", "-a", "@/", "--allow-upload", "--allow-delete", "--allow-search", "--allow-archive", "--allow-symlink"])]
+    server: TestServer,
 ) -> Result<(), Error> {
     let resp = reqwest::blocking::get(server.url())?;
     let content = resp.text()?;
@@ -367,7 +381,8 @@ fn auth_data(
 
 #[rstest]
 fn auth_shadow(
-    #[with(&["--auth", "user:pass@/:rw", "-a", "@/dir1", "-A"])] server: TestServer,
+    #[with(&["--auth", "user:pass@/:rw", "-a", "@/dir1", "--allow-upload", "--allow-delete", "--allow-search", "--allow-archive", "--allow-symlink"])]
+    server: TestServer,
 ) -> Result<(), Error> {
     let url = format!("{}dir1/test.txt", server.url());
     let resp = fetch!(b"PUT", &url).body(b"abc".to_vec()).send()?;

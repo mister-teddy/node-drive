@@ -12,7 +12,7 @@ use std::process::{Command, Stdio};
 #[rstest]
 #[case("index.html")]
 fn single_file(tmpdir: TempDir, port: u16, #[case] file: &str) -> Result<(), Error> {
-    let mut child = Command::cargo_bin("dufs")?
+    let mut child = Command::cargo_bin("node-drive")?
         .arg(tmpdir.path().join(file))
         .arg("-p")
         .arg(port.to_string())
@@ -35,7 +35,7 @@ fn single_file(tmpdir: TempDir, port: u16, #[case] file: &str) -> Result<(), Err
 #[rstest]
 #[case("index.html")]
 fn path_prefix_single_file(tmpdir: TempDir, port: u16, #[case] file: &str) -> Result<(), Error> {
-    let mut child = Command::cargo_bin("dufs")?
+    let mut child = Command::cargo_bin("node-drive")?
         .arg(tmpdir.path().join(file))
         .arg("-p")
         .arg(port.to_string())
