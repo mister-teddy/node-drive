@@ -227,9 +227,7 @@ After=network.target
 
 [Service]
 Type=simple
-User=$USER
-WorkingDirectory=$INSTALL_DIR
-ExecStart=$INSTALL_DIR/$BINARY_NAME --bind 0.0.0.0 --port 80 --allow-all $HOME/node-drive
+ExecStart=$INSTALL_DIR/$BINARY_NAME --bind 0.0.0.0 --port 80 $HOME/node-drive
 Restart=always
 RestartSec=10
 StandardOutput=journal

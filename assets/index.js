@@ -1,3 +1,7 @@
+import React from "https://esm.sh/react@18";
+import { createRoot } from "https://esm.sh/react-dom@18/client";
+import UploadButton from "./src/components/upload-button.js";
+
 /**
  * @typedef {object} PathItem
  * @property {"Dir"|"SymlinkDir"|"File"|"SymlinkFile"} path_type
@@ -41,13 +45,28 @@ var DIR_EMPTY_NOTE;
  * @property {string} sort
  * @property {string} order
  */
-const PARAMS = Object.fromEntries(new URLSearchParams(window.location.search).entries());
+const PARAMS = Object.fromEntries(
+  new URLSearchParams(window.location.search).entries(),
+);
 
 const IFRAME_FORMATS = [
   ".pdf",
-  ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".svg",
-  ".mp4", ".mov", ".avi", ".wmv", ".flv", ".webm",
-  ".mp3", ".ogg", ".wav", ".m4a",
+  ".jpg",
+  ".jpeg",
+  ".png",
+  ".gif",
+  ".bmp",
+  ".svg",
+  ".mp4",
+  ".mov",
+  ".avi",
+  ".wmv",
+  ".flv",
+  ".webm",
+  ".mp3",
+  ".ogg",
+  ".wav",
+  ".m4a",
 ];
 
 const MAX_SUBPATHS_COUNT = 1000;
@@ -62,12 +81,48 @@ const ICONS = {
   edit: `<svg width="16" height="16" viewBox="0 0 16 16"><path d="M12.146.146a.5.5 0 0 1 .708 0l3 3a.5.5 0 0 1 0 .708l-10 10a.5.5 0 0 1-.168.11l-5 2a.5.5 0 0 1-.65-.65l2-5a.5.5 0 0 1 .11-.168l10-10zM11.207 2.5 13.5 4.793 14.793 3.5 12.5 1.207 11.207 2.5zm1.586 3L10.5 3.207 4 9.707V10h.5a.5.5 0 0 1 .5.5v.5h.5a.5.5 0 0 1 .5.5v.5h.293l6.5-6.5zm-9.761 5.175-.106.106-1.528 3.821 3.821-1.528.106-.106A.5.5 0 0 1 5 12.5V12h-.5a.5.5 0 0 1-.5-.5V11h-.5a.5.5 0 0 1-.468-.325z"/></svg>`,
   delete: `<svg width="16" height="16" viewBox="0 0 16 16"><path d="M6.854 7.146a.5.5 0 1 0-.708.708L7.293 9l-1.147 1.146a.5.5 0 0 0 .708.708L8 9.707l1.146 1.147a.5.5 0 0 0 .708-.708L8.707 9l1.147-1.146a.5.5 0 0 0-.708-.708L8 8.293 6.854 7.146z"/><path d="M14 14V4.5L9.5 0H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2zM9.5 3A1.5 1.5 0 0 0 11 4.5h2V14a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1h5.5v2z"/></svg>`,
   view: `<svg width="16" height="16" viewBox="0 0 16 16"><path d="M4 0a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V2a2 2 0 0 0-2-2zm0 1h8a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1"/></svg>`,
-}
+};
 
 /**
  * @type Map<string, Uploader>
  */
 const failUploaders = new Map();
+
+/**
+ * Component registry for React components
+ */
+const componentRegistry = new Map();
+
+/**
+ * Register a React component for mounting
+ * @param {string} name - Component name
+ * @param {React.ComponentType} component - React component
+ */
+function registerComponent(name, component) {
+  componentRegistry.set(name, component);
+}
+
+// Register React components
+registerComponent("UploadButton", UploadButton);
+
+/**
+ * Mount React components to elements with data-react-component attribute
+ */
+async function mountReactComponents() {
+  const elements = document.querySelectorAll("[data-react-component]");
+
+  for (const element of elements) {
+    const componentName = element.getAttribute("data-react-component");
+
+    if (componentRegistry.has(componentName)) {
+      const Component = componentRegistry.get(componentName);
+      const root = createRoot(element);
+      root.render(React.createElement(Component, { DATA }));
+    } else {
+      console.warn(`Component '${componentName}' not found in registry`);
+    }
+  }
+}
 
 /**
  * @type Element
@@ -108,16 +163,23 @@ let $userName;
 
 // Produce table when window loads
 window.addEventListener("DOMContentLoaded", async () => {
-  const $indexData = document.getElementById('index-data');
+  const $indexData = document.getElementById("index-data");
   if (!$indexData) {
     alert("No data");
     return;
   }
 
   DATA = JSON.parse(decodeBase64($indexData.innerHTML));
-  DIR_EMPTY_NOTE = PARAMS.q ? 'No results' : DATA.dir_exists ? 'Empty folder' : 'Folder will be created when a file is uploaded';
+  DIR_EMPTY_NOTE = PARAMS.q
+    ? "No results"
+    : DATA.dir_exists
+      ? "Empty folder"
+      : "Folder will be created when a file is uploaded";
 
   await ready();
+
+  // Mount React components after DOM is ready
+  await mountReactComponents();
 });
 
 async function ready() {
@@ -161,7 +223,7 @@ class Uploader {
     /**
      * @type Element
      */
-    this.$uploadStatus = null
+    this.$uploadStatus = null;
     this.uploaded = 0;
     this.uploadOffset = 0;
     this.lastUptime = 0;
@@ -174,7 +236,9 @@ class Uploader {
   upload() {
     const { idx, name, url } = this;
     const encodedName = encodedStr(name);
-    $uploadersTable.insertAdjacentHTML("beforeend", `
+    $uploadersTable.insertAdjacentHTML(
+      "beforeend",
+      `
   <tr id="upload${idx}" class="uploader">
     <td class="path cell-icon">
       ${getPathSvg()}
@@ -183,12 +247,13 @@ class Uploader {
       <a href="${url}">${encodedName}</a>
     </td>
     <td class="cell-status upload-status" id="uploadStatus${idx}"></td>
-  </tr>`);
+  </tr>`,
+    );
     $uploadersTable.classList.remove("hidden");
     $emptyFolder.classList.add("hidden");
     this.$uploadStatus = document.getElementById(`uploadStatus${idx}`);
-    this.$uploadStatus.innerHTML = '-';
-    this.$uploadStatus.addEventListener("click", e => {
+    this.$uploadStatus.innerHTML = "-";
+    this.$uploadStatus.addEventListener("click", (e) => {
       const nodeId = e.target.id;
       const matches = /^retry(\d+)$/.exec(nodeId);
       if (matches) {
@@ -208,7 +273,7 @@ class Uploader {
     this.lastUptime = Date.now();
 
     const ajax = new XMLHttpRequest();
-    ajax.upload.addEventListener("progress", e => this.progress(e), false);
+    ajax.upload.addEventListener("progress", (e) => this.progress(e), false);
     ajax.addEventListener("readystatechange", () => {
       if (ajax.readyState === 4) {
         if (ajax.status >= 200 && ajax.status < 300) {
@@ -219,7 +284,7 @@ class Uploader {
           }
         }
       }
-    })
+    });
     ajax.addEventListener("error", () => this.fail(), false);
     ajax.addEventListener("abort", () => this.fail(), false);
     if (this.uploadOffset > 0) {
@@ -249,10 +314,13 @@ class Uploader {
 
   progress(event) {
     const now = Date.now();
-    const speed = (event.loaded - this.uploaded) / (now - this.lastUptime) * 1000;
+    const speed =
+      ((event.loaded - this.uploaded) / (now - this.lastUptime)) * 1000;
     const [speedValue, speedUnit] = formatFileSize(speed);
     const speedText = `${speedValue} ${speedUnit}/s`;
-    const progress = formatPercent(((event.loaded + this.uploadOffset) / this.file.size) * 100);
+    const progress = formatPercent(
+      ((event.loaded + this.uploadOffset) / this.file.size) * 100,
+    );
     const duration = formatDuration((event.total - event.loaded) / speed);
     this.$uploadStatus.innerHTML = `<span style="width: 80px;">${speedText}</span><span>${progress} ${duration}</span>`;
     this.uploaded = event.loaded;
@@ -262,7 +330,10 @@ class Uploader {
   complete() {
     const $uploadStatusNew = this.$uploadStatus.cloneNode(true);
     $uploadStatusNew.innerHTML = `✓`;
-    this.$uploadStatus.parentNode.replaceChild($uploadStatusNew, this.$uploadStatus);
+    this.$uploadStatus.parentNode.replaceChild(
+      $uploadStatusNew,
+      this.$uploadStatus,
+    );
     this.$uploadStatus = null;
     failUploaders.delete(this.idx);
     Uploader.runnings--;
@@ -288,7 +359,6 @@ Uploader.auth = false;
  */
 Uploader.queues = [];
 
-
 Uploader.runQueue = async () => {
   if (Uploader.runnings >= DUFS_MAX_UPLOADINGS) return;
   if (Uploader.queues.length == 0) return;
@@ -303,7 +373,7 @@ Uploader.runQueue = async () => {
     }
   }
   uploader.ajax();
-}
+};
 
 /**
  * Add breadcrumb
@@ -330,14 +400,23 @@ function addBreadcrumb(href, uri_prefix) {
     }
     const encodedName = encodedStr(name);
     if (i === 0) {
-      $breadcrumb.insertAdjacentHTML("beforeend", `<a href="${path}" title="Root"><svg width="16" height="16" viewBox="0 0 16 16"><path d="M6.5 14.5v-3.505c0-.245.25-.495.5-.495h2c.25 0 .5.25.5.5v3.5a.5.5 0 0 0 .5.5h4a.5.5 0 0 0 .5-.5v-7a.5.5 0 0 0-.146-.354L13 5.793V2.5a.5.5 0 0 0-.5-.5h-1a.5.5 0 0 0-.5.5v1.293L8.354 1.146a.5.5 0 0 0-.708 0l-6 6A.5.5 0 0 0 1.5 7.5v7a.5.5 0 0 0 .5.5h4a.5.5 0 0 0 .5-.5z"/></svg></a>`);
+      $breadcrumb.insertAdjacentHTML(
+        "beforeend",
+        `<a href="${path}" title="Root"><svg width="16" height="16" viewBox="0 0 16 16"><path d="M6.5 14.5v-3.505c0-.245.25-.495.5-.495h2c.25 0 .5.25.5.5v3.5a.5.5 0 0 0 .5.5h4a.5.5 0 0 0 .5-.5v-7a.5.5 0 0 0-.146-.354L13 5.793V2.5a.5.5 0 0 0-.5-.5h-1a.5.5 0 0 0-.5.5v1.293L8.354 1.146a.5.5 0 0 0-.708 0l-6 6A.5.5 0 0 0 1.5 7.5v7a.5.5 0 0 0 .5.5h4a.5.5 0 0 0 .5-.5z"/></svg></a>`,
+      );
     } else if (i === len - 1) {
       $breadcrumb.insertAdjacentHTML("beforeend", `<b>${encodedName}</b>`);
     } else {
-      $breadcrumb.insertAdjacentHTML("beforeend", `<a href="${path}">${encodedName}</a>`);
+      $breadcrumb.insertAdjacentHTML(
+        "beforeend",
+        `<a href="${path}">${encodedName}</a>`,
+      );
     }
     if (i !== len - 1) {
-      $breadcrumb.insertAdjacentHTML("beforeend", `<span class="separator">/</span>`);
+      $breadcrumb.insertAdjacentHTML(
+        "beforeend",
+        `<span class="separator">/</span>`,
+      );
     }
   }
 }
@@ -353,7 +432,6 @@ async function setupIndexPage() {
 
   if (DATA.allow_upload) {
     setupDropzone();
-    setupUploadFile();
     setupNewFolder();
     setupNewFile();
   }
@@ -393,28 +471,37 @@ function renderPathsTableHead() {
       name: "size",
       props: ``,
       text: "Size",
-    }
+    },
   ];
-  $pathsTableHead.insertAdjacentHTML("beforeend", `
+  $pathsTableHead.insertAdjacentHTML(
+    "beforeend",
+    `
     <tr>
-      ${headerItems.map(item => {
-    let svg = `<svg width="12" height="12" viewBox="0 0 16 16"><path fill-rule="evenodd" d="M11.5 15a.5.5 0 0 0 .5-.5V2.707l3.146 3.147a.5.5 0 0 0 .708-.708l-4-4a.5.5 0 0 0-.708 0l-4 4a.5.5 0 1 0 .708.708L11 2.707V14.5a.5.5 0 0 0 .5.5zm-7-14a.5.5 0 0 1 .5.5v11.793l3.146-3.147a.5.5 0 0 1 .708.708l-4 4a.5.5 0 0 1-.708 0l-4-4a.5.5 0 0 1 .708-.708L4 13.293V1.5a.5.5 0 0 1 .5-.5z"/></svg>`;
-    let order = "desc";
-    if (PARAMS.sort === item.name) {
-      if (PARAMS.order === "desc") {
-        order = "asc";
-        svg = `<svg width="12" height="12" viewBox="0 0 16 16"><path fill-rule="evenodd" d="M8 1a.5.5 0 0 1 .5.5v11.793l3.146-3.147a.5.5 0 0 1 .708.708l-4 4a.5.5 0 0 1-.708 0l-4-4a.5.5 0 0 1 .708-.708L7.5 13.293V1.5A.5.5 0 0 1 8 1z"/></svg>`
-      } else {
-        svg = `<svg width="12" height="12" viewBox="0 0 16 16"><path fill-rule="evenodd" d="M8 15a.5.5 0 0 0 .5-.5V2.707l3.146 3.147a.5.5 0 0 0 .708-.708l-4-4a.5.5 0 0 0-.708 0l-4 4a.5.5 0 1 0 .708.708L7.5 2.707V14.5a.5.5 0 0 0 .5.5z"/></svg>`
-      }
-    }
-    const qs = new URLSearchParams({ ...PARAMS, order, sort: item.name }).toString();
-    const icon = `<span>${svg}</span>`
-    return `<th class="cell-${item.name}" ${item.props}><a href="?${qs}">${item.text}${icon}</a></th>`
-  }).join("\n")}
+      ${headerItems
+        .map((item) => {
+          let svg = `<svg width="12" height="12" viewBox="0 0 16 16"><path fill-rule="evenodd" d="M11.5 15a.5.5 0 0 0 .5-.5V2.707l3.146 3.147a.5.5 0 0 0 .708-.708l-4-4a.5.5 0 0 0-.708 0l-4 4a.5.5 0 1 0 .708.708L11 2.707V14.5a.5.5 0 0 0 .5.5zm-7-14a.5.5 0 0 1 .5.5v11.793l3.146-3.147a.5.5 0 0 1 .708.708l-4 4a.5.5 0 0 1-.708 0l-4-4a.5.5 0 0 1 .708-.708L4 13.293V1.5a.5.5 0 0 1 .5-.5z"/></svg>`;
+          let order = "desc";
+          if (PARAMS.sort === item.name) {
+            if (PARAMS.order === "desc") {
+              order = "asc";
+              svg = `<svg width="12" height="12" viewBox="0 0 16 16"><path fill-rule="evenodd" d="M8 1a.5.5 0 0 1 .5.5v11.793l3.146-3.147a.5.5 0 0 1 .708.708l-4 4a.5.5 0 0 1-.708 0l-4-4a.5.5 0 0 1 .708-.708L7.5 13.293V1.5A.5.5 0 0 1 8 1z"/></svg>`;
+            } else {
+              svg = `<svg width="12" height="12" viewBox="0 0 16 16"><path fill-rule="evenodd" d="M8 15a.5.5 0 0 0 .5-.5V2.707l3.146 3.147a.5.5 0 0 0 .708-.708l-4-4a.5.5 0 0 0-.708 0l-4 4a.5.5 0 1 0 .708.708L7.5 2.707V14.5a.5.5 0 0 0 .5.5z"/></svg>`;
+            }
+          }
+          const qs = new URLSearchParams({
+            ...PARAMS,
+            order,
+            sort: item.name,
+          }).toString();
+          const icon = `<span>${svg}</span>`;
+          return `<th class="cell-${item.name}" ${item.props}><a href="?${qs}">${item.text}${icon}</a></th>`;
+        })
+        .join("\n")}
       <th class="cell-actions">Actions</th>
     </tr>
-  `);
+  `,
+  );
 }
 
 /**
@@ -485,9 +572,13 @@ function addPath(file, index) {
     ${actionEdit}
   </td>`;
 
-  let sizeDisplay = isDir ? formatDirSize(file.size) : formatFileSize(file.size).join(" ");
+  let sizeDisplay = isDir
+    ? formatDirSize(file.size)
+    : formatFileSize(file.size).join(" ");
 
-  $pathsTableBody.insertAdjacentHTML("beforeend", `
+  $pathsTableBody.insertAdjacentHTML(
+    "beforeend",
+    `
 <tr id="addPath${index}">
   <td class="path cell-icon">
     ${getPathSvg(file.path_type)}
@@ -498,19 +589,28 @@ function addPath(file, index) {
   <td class="cell-mtime">${formatMtime(file.mtime)}</td>
   <td class="cell-size">${sizeDisplay}</td>
   ${actionCell}
-</tr>`);
+</tr>`,
+  );
 }
 
 function setupDropzone() {
-  ["drag", "dragstart", "dragend", "dragover", "dragenter", "dragleave", "drop"].forEach(name => {
-    document.addEventListener(name, e => {
+  [
+    "drag",
+    "dragstart",
+    "dragend",
+    "dragover",
+    "dragenter",
+    "dragleave",
+    "drop",
+  ].forEach((name) => {
+    document.addEventListener(name, (e) => {
       e.preventDefault();
       e.stopPropagation();
     });
   });
-  document.addEventListener("drop", async e => {
+  document.addEventListener("drop", async (e) => {
     if (!e.dataTransfer.items[0].webkitGetAsEntry) {
-      const files = Array.from(e.dataTransfer.files).filter(v => v.size > 0);
+      const files = Array.from(e.dataTransfer.files).filter((v) => v.size > 0);
       for (const file of files) {
         new Uploader(file, []).upload();
       }
@@ -535,15 +635,15 @@ async function setupAuth() {
     $loginBtn.addEventListener("click", async () => {
       try {
         await checkAuth("login");
-      } catch { }
+      } catch {}
       location.reload();
     });
   }
 }
 
 function setupDownloadWithToken() {
-  document.querySelectorAll("a.dlwt").forEach(link => {
-    link.addEventListener("click", async e => {
+  document.querySelectorAll("a.dlwt").forEach((link) => {
+    link.addEventListener("click", async (e) => {
       e.preventDefault();
       try {
         const link = e.currentTarget || e.target;
@@ -571,7 +671,7 @@ function setupDownloadWithToken() {
 function setupSearch() {
   const $searchbar = document.querySelector(".searchbar");
   $searchbar.classList.remove("hidden");
-  $searchbar.addEventListener("submit", event => {
+  $searchbar.addEventListener("submit", (event) => {
     event.preventDefault();
     const formData = new FormData($searchbar);
     const q = formData.get("q");
@@ -582,18 +682,8 @@ function setupSearch() {
     location.href = href;
   });
   if (PARAMS.q) {
-    document.getElementById('search').value = PARAMS.q;
+    document.getElementById("search").value = PARAMS.q;
   }
-}
-
-function setupUploadFile() {
-  document.querySelector(".upload-file").classList.remove("hidden");
-  document.getElementById("file").addEventListener("change", async e => {
-    const files = e.target.files;
-    for (let file of files) {
-      new Uploader(file, []).upload();
-    }
-  });
 }
 
 function setupNewFolder() {
@@ -655,11 +745,15 @@ async function setupEditorPage() {
     const $notEditable = document.querySelector(".not-editable");
     const url = baseUrl();
     const ext = extName(baseName(url));
-    if (IFRAME_FORMATS.find(v => v === ext)) {
-      $notEditable.insertAdjacentHTML("afterend", `<iframe src="${url}" sandbox width="100%" height="${window.innerHeight - 100}px"></iframe>`);
+    if (IFRAME_FORMATS.find((v) => v === ext)) {
+      $notEditable.insertAdjacentHTML(
+        "afterend",
+        `<iframe src="${url}" sandbox width="100%" height="${window.innerHeight - 100}px"></iframe>`,
+      );
     } else {
       $notEditable.classList.remove("hidden");
-      $notEditable.textContent = "Cannot edit because file is too large or binary.";
+      $notEditable.textContent =
+        "Cannot edit because file is too large or binary.";
     }
     return;
   }
@@ -693,7 +787,7 @@ async function deletePath(index) {
   await doDeletePath(file.name, newUrl(file.name), () => {
     document.getElementById(`addPath${index}`)?.remove();
     DATA.paths[index] = null;
-    if (!DATA.paths.find(v => !!v)) {
+    if (!DATA.paths.find((v) => !!v)) {
       $pathsTable.classList.add("hidden");
       $emptyFolder.textContent = DIR_EMPTY_NOTE;
       $emptyFolder.classList.remove("hidden");
@@ -741,7 +835,10 @@ async function doMovePath(fileUrl) {
   if (!newPath) return;
   if (!newPath.startsWith("/")) newPath = "/" + newPath;
   if (filePath === newPath) return;
-  const newFileUrl = fileUrlObj.origin + prefix + newPath.split("/").map(encodeURIComponent).join("/");
+  const newFileUrl =
+    fileUrlObj.origin +
+    prefix +
+    newPath.split("/").map(encodeURIComponent).join("/");
 
   try {
     await checkAuth();
@@ -756,8 +853,8 @@ async function doMovePath(fileUrl) {
     const res2 = await fetch(fileUrl, {
       method: "MOVE",
       headers: {
-        "Destination": newFileUrl,
-      }
+        Destination: newFileUrl,
+      },
     });
     await assertResOK(res2);
     return newFileUrl;
@@ -765,7 +862,6 @@ async function doMovePath(fileUrl) {
     alert(`Cannot move \`${filePath}\` to \`${newPath}\`, ${err.message}`);
   }
 }
-
 
 /**
  * Save editor change
@@ -801,7 +897,7 @@ function logout() {
   xhr.open("LOGOUT", url, true, DATA.user);
   xhr.onload = () => {
     location.href = url;
-  }
+  };
   xhr.send();
 }
 
@@ -841,13 +937,13 @@ async function createFile(name) {
 async function addFileEntries(entries, dirs) {
   for (const entry of entries) {
     if (entry.isFile) {
-      entry.file(file => {
+      entry.file((file) => {
         new Uploader(file, dirs).upload();
       });
     } else if (entry.isDirectory) {
       const dirReader = entry.createReader();
 
-      const successCallback = entries => {
+      const successCallback = (entries) => {
         if (entries.length > 0) {
           addFileEntries(entries, [...dirs, entry.name]);
           dirReader.readEntries(successCallback);
@@ -858,7 +954,6 @@ async function addFileEntries(entries, dirs) {
     }
   }
 }
-
 
 function newUrl(name) {
   let url = baseUrl();
@@ -872,14 +967,19 @@ function baseUrl() {
 }
 
 function baseName(url) {
-  return decodeURIComponent(url.split("/").filter(v => v.length > 0).slice(-1)[0]);
+  return decodeURIComponent(
+    url
+      .split("/")
+      .filter((v) => v.length > 0)
+      .slice(-1)[0],
+  );
 }
 
 function extName(filename) {
-  const dotIndex = filename.lastIndexOf('.');
+  const dotIndex = filename.lastIndexOf(".");
 
   if (dotIndex === -1 || dotIndex === 0 || dotIndex === filename.length - 1) {
-    return '';
+    return "";
   }
 
   return filename.substring(dotIndex);
@@ -915,20 +1015,21 @@ function padZero(value, size) {
 
 function formatDirSize(size) {
   const unit = size === 1 ? "item" : "items";
-  const num = size >= MAX_SUBPATHS_COUNT ? `>${MAX_SUBPATHS_COUNT - 1}` : `${size}`;
+  const num =
+    size >= MAX_SUBPATHS_COUNT ? `>${MAX_SUBPATHS_COUNT - 1}` : `${size}`;
   return ` ${num} ${unit}`;
 }
 
 function formatFileSize(size) {
   if (size == null) return [0, "B"];
-  const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const sizes = ["B", "KB", "MB", "GB", "TB"];
   if (size == 0) return [0, "B"];
   const i = parseInt(Math.floor(Math.log(size) / Math.log(1024)));
   let ratio = 1;
   if (i >= 3) {
     ratio = 100;
   }
-  return [Math.round(size * ratio / Math.pow(1024, i), 2) / ratio, sizes[i]];
+  return [Math.round((size * ratio) / Math.pow(1024, i), 2) / ratio, sizes[i]];
 }
 
 function formatDuration(seconds) {
@@ -949,13 +1050,13 @@ function formatPercent(percent) {
 
 function encodedStr(rawStr) {
   return rawStr.replace(/[\u00A0-\u9999<>\&]/g, function (i) {
-    return '&#' + i.charCodeAt(0) + ';';
+    return "&#" + i.charCodeAt(0) + ";";
   });
 }
 
 async function assertResOK(res) {
   if (!(res.status >= 200 && res.status < 300)) {
-    throw new Error(await res.text() || `Invalid status ${res.status}`);
+    throw new Error((await res.text()) || `Invalid status ${res.status}`);
   }
 }
 
@@ -967,7 +1068,7 @@ function getEncoding(contentType) {
       return encoding.toLowerCase();
     }
   }
-  return 'utf-8';
+  return "utf-8";
 }
 
 // Parsing base64 strings with Unicode characters
@@ -978,7 +1079,8 @@ function decodeBase64(base64String) {
   const arr = new Uint32Array(bytes.buffer, 0, Math.floor(len / 4));
   let i = 0;
   for (; i < arr.length; i++) {
-    arr[i] = binString.charCodeAt(i * 4) |
+    arr[i] =
+      binString.charCodeAt(i * 4) |
       (binString.charCodeAt(i * 4 + 1) << 8) |
       (binString.charCodeAt(i * 4 + 2) << 16) |
       (binString.charCodeAt(i * 4 + 3) << 24);
@@ -988,3 +1090,5 @@ function decodeBase64(base64String) {
   }
   return new TextDecoder().decode(bytes);
 }
+
+Object.assign(window, { Uploader });

@@ -97,16 +97,6 @@ pub fn build_cli() -> Command {
                 .help("Select auth method")
                 .value_parser(PossibleValuesParser::new(["basic", "digest"]))
                 .default_value("digest")
-                .value_name("value"),
-        )
-        .arg(
-            Arg::new("allow-all")
-                .env("DUFS_ALLOW_ALL")
-				.hide_env(true)
-                .short('A')
-                .long("allow-all")
-                .action(ArgAction::SetTrue)
-                .help("Allow all operations"),
         )
         .arg(
             Arg::new("allow-upload")
@@ -275,11 +265,15 @@ pub struct Args {
     pub hidden: Vec<String>,
     #[serde(deserialize_with = "deserialize_access_control")]
     pub auth: AccessControl,
-    pub allow_all: bool,
+    #[default(true)]
     pub allow_upload: bool,
+    #[default(true)]
     pub allow_delete: bool,
+    #[default(true)]
     pub allow_search: bool,
+    #[default(true)]
     pub allow_symlink: bool,
+    #[default(true)]
     pub allow_archive: bool,
     pub render_index: bool,
     pub render_spa: bool,
@@ -356,27 +350,20 @@ impl Args {
             let rules: Vec<_> = rules.map(|v| v.as_str()).collect();
             args.auth = AccessControl::new(&rules)?;
         }
-
-        if !args.allow_all {
-            args.allow_all = matches.get_flag("allow-all");
-        }
-
-        let allow_all = args.allow_all;
-
         if !args.allow_upload {
-            args.allow_upload = allow_all || matches.get_flag("allow-upload");
+            args.allow_upload = true;
         }
         if !args.allow_delete {
-            args.allow_delete = allow_all || matches.get_flag("allow-delete");
+            args.allow_delete = true;
         }
         if !args.allow_search {
-            args.allow_search = allow_all || matches.get_flag("allow-search");
+            args.allow_search = true;
         }
         if !args.allow_symlink {
-            args.allow_symlink = allow_all || matches.get_flag("allow-symlink");
+            args.allow_symlink = true;
         }
         if !args.allow_archive {
-            args.allow_archive = allow_all || matches.get_flag("allow-archive");
+            args.allow_archive = true;
         }
         if !args.render_index {
             args.render_index = matches.get_flag("render-index");

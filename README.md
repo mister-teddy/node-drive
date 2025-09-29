@@ -61,7 +61,6 @@ Options:
       --path-prefix <path>   Specify a path prefix
       --hidden <value>       Hide paths from directory listings, e.g. tmp,*.log,*.lock
   -a, --auth <rules>         Add auth roles, e.g. user:pass@/dir1:rw,/dir2
-  -A, --allow-all            Allow all operations
       --allow-upload         Allow upload files/folders
       --allow-delete         Allow delete files/folders
       --allow-search         Allow search files/folders
@@ -340,7 +339,6 @@ All options can be set using environment variables prefixed with `DUFS_`.
     --path-prefix <path>    DUFS_PATH_PREFIX=/dufs
     --hidden <value>        DUFS_HIDDEN=tmp,*.log,*.lock
 -a, --auth <rules>          DUFS_AUTH="admin:admin@/:rw|@/" 
--A, --allow-all             DUFS_ALLOW_ALL=true
     --allow-upload          DUFS_ALLOW_UPLOAD=true
     --allow-delete          DUFS_ALLOW_DELETE=true
     --allow-search          DUFS_ALLOW_SEARCH=true
@@ -377,7 +375,6 @@ auth:
   - admin:admin@/:rw
   - user:pass@/src:rw,/share
   - '@/'  # According to the YAML spec, quoting is required.
-allow-all: false
 allow-upload: true
 allow-delete: true
 allow-search: true
