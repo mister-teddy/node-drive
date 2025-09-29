@@ -5,7 +5,7 @@ import {
   useEffect,
   createElement,
 } from "https://esm.sh/react@18.3.1";
-import { store } from "../utils.js";
+import { store, calculateSHA256 } from "../utils.js";
 
 export default function UploadButton({ DATA }) {
   if (!DATA.allow_upload) {
@@ -38,9 +38,18 @@ export default function UploadButton({ DATA }) {
       onChange: async (e) => {
         const files = e.target.files;
         for (let file of files) {
+          const sha256 = await calculateSHA256(file, (progress) => {
+            console.log(`Progress: ${progress}%`);
+          });
           const result = new Uploader(file, []).upload();
-          console.log({ result });
-          store.uploadQueue = [...store.uploadQueue, result];
+          store.uploadQueue = [
+            ...store.uploadQueue,
+            {
+              file,
+              sha256,
+              result,
+            },
+          ];
         }
       },
     }),

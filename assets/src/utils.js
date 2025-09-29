@@ -1,87 +1,10 @@
 // @ts-check
-import { observable, autorun } from "https://esm.sh/mobx@6.15.0";
-
-export { autorun };
+export { autorun, toJS } from "https://esm.sh/mobx@6.15.0";
+import { observable } from "https://esm.sh/mobx@6.15.0";
 
 export const store = observable({
   uploadQueue: [],
 });
-
-/**
- * Calculate SHA256 hash of a file with progress tracking using Web Crypto API
- *
- * @param {File} file - The file to hash
- * @param {function} progressCallback - Optional callback function that receives progress (0-1)
- * @returns {Promise<string>} Promise that resolves to the SHA256 hash as hex string
- *
- * @example
- * // Basic usage with progress callback
- * const fileInput = document.getElementById('file');
- * fileInput.addEventListener('change', async (event) => {
- *   const file = event.target.files[0];
- *   if (file) {
- *     try {
- *       const hash = await calculateSHA256WithProgress(file, (progress) => {
- *         console.log(`Progress: ${(progress * 100).toFixed(1)}%`);
- *         // Update UI progress bar here
- *         document.getElementById('progress').style.width = `${progress * 100}%`;
- *       });
- *       console.log('SHA256:', hash);
- *     } catch (error) {
- *       console.error('Error:', error);
- *     }
- *   }
- * });
- *
- * @example
- * // Usage without progress callback
- * const hash = await calculateSHA256WithProgress(file);
- * console.log('File hash:', hash);
- */
-async function calculateSHA256WithProgress(file, progressCallback) {
-  const chunkSize = 64 * 1024; // 64KB chunks
-  let position = 0;
-
-  const hasher = crypto.subtle;
-  const encoder = new TextEncoder();
-
-  // For streaming hash, we need to use a different approach
-  // since Web Crypto API doesn't support streaming directly
-  const chunks = [];
-
-  while (position < file.size) {
-    const chunk = file.slice(position, position + chunkSize);
-    const arrayBuffer = await chunk.arrayBuffer();
-    chunks.push(new Uint8Array(arrayBuffer));
-
-    position += chunkSize;
-
-    // Call progress callback
-    if (progressCallback) {
-      const progress = Math.min(position / file.size, 1);
-      progressCallback(progress);
-    }
-  }
-
-  // Combine all chunks
-  const totalLength = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
-  const combined = new Uint8Array(totalLength);
-  let offset = 0;
-
-  for (const chunk of chunks) {
-    combined.set(chunk, offset);
-    offset += chunk.length;
-  }
-
-  // Calculate final hash
-  const hashBuffer = await crypto.subtle.digest("SHA-256", combined);
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  const hashHex = hashArray
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-
-  return hashHex;
-}
 
 /**
  * Memory-efficient SHA256 calculation using FileReader for better handling of large files
@@ -124,7 +47,7 @@ async function calculateSHA256WithProgress(file, progressCallback) {
  *   }
  * }
  */
-async function calculateSHA256WithProgressStream(file, progressCallback) {
+export async function calculateSHA256(file, progressCallback) {
   return new Promise((resolve, reject) => {
     const chunkSize = 64 * 1024; // 64KB chunks
     let position = 0;
