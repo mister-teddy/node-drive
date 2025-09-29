@@ -1,5 +1,7 @@
 // @ts-check
+// @ts-ignore
 export { autorun, toJS } from "https://esm.sh/mobx@6.15.0";
+// @ts-ignore
 import { observable } from "https://esm.sh/mobx@6.15.0";
 
 export const store = observable({
@@ -51,6 +53,9 @@ export async function calculateSHA256(file, progressCallback) {
   return new Promise((resolve, reject) => {
     const chunkSize = 64 * 1024; // 64KB chunks
     let position = 0;
+    /**
+     * @type {Uint8Array<ArrayBuffer>[]}
+     */
     const chunks = [];
 
     function readNextChunk() {
@@ -122,4 +127,278 @@ export async function calculateSHA256(file, progressCallback) {
     // Start reading
     readNextChunk();
   });
+}
+
+export function baseUrl() {
+  return location.href.split(/[?#]/)[0];
+}
+
+/**
+ * Encodes a string to be safely included in a URL path segment
+ * @param {string} name - The string to encode
+ * @returns {string} The encoded string
+ */
+export function newUrl(name) {
+  let url = baseUrl();
+  if (!url.endsWith("/")) url += "/";
+  url += name.split("/").map(encodeURIComponent).join("/");
+  return url;
+}
+
+/**
+ * @param {string} url
+ * @returns {string}
+ */
+export function baseName(url) {
+  return decodeURIComponent(
+    url
+      .split("/")
+      .filter((v) => v.length > 0)
+      .slice(-1)[0],
+  );
+}
+
+/**
+ * @param {string} filename
+ * @returns {string}
+ */
+export function extName(filename) {
+  const dotIndex = filename.lastIndexOf(".");
+
+  if (dotIndex === -1 || dotIndex === 0 || dotIndex === filename.length - 1) {
+    return "";
+  }
+
+  return filename.substring(dotIndex);
+}
+
+/**
+ * @param {number} mtime
+ * @returns {string}
+ */
+export function formatMtime(mtime) {
+  if (!mtime) return "";
+  const date = new Date(mtime);
+  const year = date.getFullYear();
+  const month = padZero(date.getMonth() + 1, 2);
+  const day = padZero(date.getDate(), 2);
+  const hours = padZero(date.getHours(), 2);
+  const minutes = padZero(date.getMinutes(), 2);
+  return `${year}-${month}-${day} ${hours}:${minutes}`;
+}
+
+/**
+ * @param {number} value
+ * @param {number} size
+ * @returns {string}
+ */
+export function padZero(value, size) {
+  return ("0".repeat(size) + value).slice(-1 * size);
+}
+
+/**
+ * @param {number} size
+ * @returns {string}
+ */
+export function formatDirSize(size) {
+  const MAX_SUBPATHS_COUNT = 1000;
+  const unit = size === 1 ? "item" : "items";
+  const num =
+    size >= MAX_SUBPATHS_COUNT ? `>${MAX_SUBPATHS_COUNT - 1}` : `${size}`;
+  return ` ${num} ${unit}`;
+}
+
+/**
+ * @param {number} size
+ * @returns {[number, string]}
+ */
+export function formatFileSize(size) {
+  if (size == null) return [0, "B"];
+  const sizes = ["B", "KB", "MB", "GB", "TB"];
+  if (size == 0) return [0, "B"];
+  const i = Math.floor(Math.log(size) / Math.log(1024));
+  let ratio = 1;
+  if (i >= 3) {
+    ratio = 100;
+  }
+  return [Math.round((size * ratio) / Math.pow(1024, i) * 100) / 100 / ratio, sizes[i]];
+}
+
+/**
+ * @param {number} seconds
+ * @returns {string}
+ */
+export function formatDuration(seconds) {
+  seconds = Math.ceil(seconds);
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds - h * 3600) / 60);
+  const s = seconds - h * 3600 - m * 60;
+  return `${padZero(h, 2)}:${padZero(m, 2)}:${padZero(s, 2)}`;
+}
+
+/**
+ * @param {number} percent
+ * @returns {string}
+ */
+export function formatPercent(percent) {
+  if (percent > 10) {
+    return percent.toFixed(1) + "%";
+  } else {
+    return percent.toFixed(2) + "%";
+  }
+}
+
+/**
+ * @param {string} rawStr
+ * @returns {string}
+ */
+export function encodedStr(rawStr) {
+  return rawStr.replace(/[\u00A0-\u9999<>\&]/g, function (/** @type {string} */ i) {
+    return "&#" + i.charCodeAt(0) + ";";
+  });
+}
+
+/**
+ * @param {Response} res
+ * @returns {Promise<void>}
+ */
+export async function assertResOK(res) {
+  if (!(res.status >= 200 && res.status < 300)) {
+    throw new Error((await res.text()) || `Invalid status ${res.status}`);
+  }
+}
+
+/**
+ * @param {string | null} contentType
+ * @returns {string}
+ */
+export function getEncoding(contentType) {
+  const charset = contentType?.split(";")[1];
+  if (charset && /charset/i.test(charset)) {
+    let encoding = charset.split("=")[1];
+    if (encoding) {
+      return encoding.toLowerCase();
+    }
+  }
+  return "utf-8";
+}
+
+/**
+ * @param {string} base64String
+ * @returns {string}
+ */
+export function decodeBase64(base64String) {
+  const binString = atob(base64String);
+  const len = binString.length;
+  const bytes = new Uint8Array(len);
+  const arr = new Uint32Array(bytes.buffer, 0, Math.floor(len / 4));
+  let i = 0;
+  for (; i < arr.length; i++) {
+    arr[i] =
+      binString.charCodeAt(i * 4) |
+      (binString.charCodeAt(i * 4 + 1) << 8) |
+      (binString.charCodeAt(i * 4 + 2) << 16) |
+      (binString.charCodeAt(i * 4 + 3) << 24);
+  }
+  for (i = i * 4; i < len; i++) {
+    bytes[i] = binString.charCodeAt(i);
+  }
+  return new TextDecoder().decode(bytes);
+}
+
+/**
+ * Create OpenTimestamps proof for a file hash
+ * @param {string} filename - Name of the file
+ * @param {string} hash - SHA256 hash of the file
+ * @returns {Promise<{filename: string, timestampBytes: Uint8Array} | null>}
+ */
+export async function stamp(filename, hash) {
+  try {
+    // @ts-ignore
+    const { OpenTimestamps } = window;
+
+    if (!OpenTimestamps) {
+      console.warn("OpenTimestamps library not loaded");
+      return null;
+    }
+
+    const op = new OpenTimestamps.Ops.OpSHA256();
+    const detached = OpenTimestamps.DetachedTimestampFile.fromHash(op, hexToBytes(hash));
+
+    // Create the timestamp
+    await OpenTimestamps.stamp(detached);
+
+    // Serialize the timestamp
+    const ctx = new OpenTimestamps.Context.StreamSerialization();
+    detached.serialize(ctx);
+    const timestampBytes = ctx.getOutput();
+
+    return { filename, timestampBytes };
+  } catch (error) {
+    console.error("OpenTimestamps stamping error:", error);
+    return null;
+  }
+}
+
+export function hexToBytes(/** @type {string} */ hex) {
+  const bytes = [];
+  for (var c = 0; c < hex.length; c += 2) {
+    bytes.push(parseInt(hex.substr(c, 2), 16));
+  }
+  return bytes;
+};
+
+/**
+ * Create user-friendly hash representation
+ * @param {string} hash - Full SHA256 hash
+ * @returns {string} Short hash format like "qw50 lll"
+ */
+export function formatHashShort(hash) {
+  if (!hash || hash.length < 8) return "----";
+
+  // Take first 4 chars and convert to base36 for readability
+  const prefix = hash.substring(0, 4);
+  const suffix = hash.substring(4, 8);
+
+  // Convert hex to more readable format
+  const shortPrefix = parseInt(prefix, 16).toString(36).substring(0, 4);
+  const shortSuffix = parseInt(suffix, 16).toString(36).substring(0, 3);
+
+  return `${shortPrefix} ${shortSuffix}`;
+}
+
+/**
+ * Format full hash for display with copy functionality
+ * @param {string} hash - Full SHA256 hash
+ * @returns {string} Truncated hash for display
+ */
+export function formatHashDisplay(hash) {
+  if (!hash || hash.length < 32) return hash || "----";
+  return `${hash.substring(0, 30)}...`;
+}
+
+/**
+ * Copy text to clipboard
+ * @param {string} text - Text to copy
+ * @returns {Promise<boolean>} Success status
+ */
+export async function copyToClipboard(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch (err) {
+    // Fallback for older browsers
+    const textArea = document.createElement("textarea");
+    textArea.value = text;
+    document.body.appendChild(textArea);
+    textArea.select();
+    try {
+      document.execCommand('copy');
+      return true;
+    } catch (e) {
+      return false;
+    } finally {
+      document.body.removeChild(textArea);
+    }
+  }
 }

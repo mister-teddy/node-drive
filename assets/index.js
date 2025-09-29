@@ -1,8 +1,22 @@
-// @ts-check
 import React from "https://esm.sh/react@18.3.1";
 import { createRoot } from "https://esm.sh/react-dom@18.3.1/client";
 import UploadButton from "./src/components/upload-button.js";
 import UploadTable from "./src/components/upload-table.js";
+import {
+  newUrl,
+  baseUrl,
+  baseName,
+  extName,
+  formatMtime,
+  formatDirSize,
+  formatFileSize,
+  formatDuration,
+  formatPercent,
+  encodedStr,
+  assertResOK,
+  getEncoding,
+  decodeBase64
+} from "./src/utils.js";
 
 /**
  * @typedef {object} PathItem
@@ -71,7 +85,6 @@ const IFRAME_FORMATS = [
   ".m4a",
 ];
 
-const MAX_SUBPATHS_COUNT = 1000;
 
 const ICONS = {
   dir: `<svg height="16" viewBox="0 0 14 16" width="14"><path fill-rule="evenodd" d="M13 4H7V3c0-.66-.31-1-1-1H1c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1V5c0-.55-.45-1-1-1zM6 4H1V3h5v1z"></path></svg>`,
@@ -212,125 +225,6 @@ async function ready() {
   }
 }
 
-class Uploader {
-  /**
-   *
-   * @param {File} file
-   * @param {string[]} pathParts
-   */
-  constructor(file, pathParts) {
-    this.uploaded = 0;
-    this.uploadOffset = 0;
-    this.lastUptime = 0;
-    this.name = [...pathParts, file.name].join("/");
-    this.idx = Uploader.globalIdx++;
-    this.file = file;
-    this.url = newUrl(this.name);
-  }
-
-  upload() {
-    const { idx, name, url } = this;
-    const encodedName = encodedStr(name);
-    $emptyFolder.classList.add("hidden");
-    Uploader.queues.push(this);
-    Uploader.runQueue();
-    return this;
-  }
-
-  ajax() {
-    const { url } = this;
-
-    this.uploaded = 0;
-    this.lastUptime = Date.now();
-
-    const ajax = new XMLHttpRequest();
-    ajax.upload.addEventListener("progress", (e) => this.progress(e), false);
-    ajax.addEventListener("readystatechange", () => {
-      if (ajax.readyState === 4) {
-        if (ajax.status >= 200 && ajax.status < 300) {
-          this.complete();
-        } else {
-          if (ajax.status != 0) {
-            this.fail(`${ajax.status} ${ajax.statusText}`);
-          }
-        }
-      }
-    });
-    ajax.addEventListener("error", () => this.fail(), false);
-    ajax.addEventListener("abort", () => this.fail(), false);
-    if (this.uploadOffset > 0) {
-      ajax.open("PATCH", url);
-      ajax.setRequestHeader("X-Update-Range", "append");
-      ajax.send(this.file.slice(this.uploadOffset));
-    } else {
-      ajax.open("PUT", url);
-      ajax.send(this.file);
-      // setTimeout(() => ajax.abort(), 3000);
-    }
-  }
-
-  async retry() {
-    const { url } = this;
-    let res = await fetch(url, {
-      method: "HEAD",
-    });
-    let uploadOffset = 0;
-    if (res.status == 200) {
-      let value = res.headers.get("content-length");
-      uploadOffset = parseInt(value) || 0;
-    }
-    this.uploadOffset = uploadOffset;
-    this.ajax();
-  }
-
-  progress(event) {
-    const now = Date.now();
-    const speed =
-      ((event.loaded - this.uploaded) / (now - this.lastUptime)) * 1000;
-    this.uploaded = event.loaded;
-    this.lastUptime = now;
-  }
-
-  complete() {
-    failUploaders.delete(this.idx);
-    Uploader.runnings--;
-    Uploader.runQueue();
-  }
-
-  fail(reason = "") {
-    failUploaders.set(this.idx, this);
-    Uploader.runnings--;
-    Uploader.runQueue();
-  }
-}
-
-Uploader.globalIdx = 0;
-
-Uploader.runnings = 0;
-
-Uploader.auth = false;
-
-/**
- * @type Uploader[]
- */
-Uploader.queues = [];
-
-Uploader.runQueue = async () => {
-  if (Uploader.runnings >= DUFS_MAX_UPLOADINGS) return;
-  if (Uploader.queues.length == 0) return;
-  Uploader.runnings++;
-  let uploader = Uploader.queues.shift();
-  if (!Uploader.auth) {
-    Uploader.auth = true;
-    try {
-      await checkAuth();
-    } catch {
-      Uploader.auth = false;
-    }
-  }
-  uploader.ajax();
-};
-
 /**
  * Add breadcrumb
  * @param {string} href
@@ -434,26 +328,26 @@ function renderPathsTableHead() {
     `
     <tr>
       ${headerItems
-        .map((item) => {
-          let svg = `<svg width="12" height="12" viewBox="0 0 16 16"><path fill-rule="evenodd" d="M11.5 15a.5.5 0 0 0 .5-.5V2.707l3.146 3.147a.5.5 0 0 0 .708-.708l-4-4a.5.5 0 0 0-.708 0l-4 4a.5.5 0 1 0 .708.708L11 2.707V14.5a.5.5 0 0 0 .5.5zm-7-14a.5.5 0 0 1 .5.5v11.793l3.146-3.147a.5.5 0 0 1 .708.708l-4 4a.5.5 0 0 1-.708 0l-4-4a.5.5 0 0 1 .708-.708L4 13.293V1.5a.5.5 0 0 1 .5-.5z"/></svg>`;
-          let order = "desc";
-          if (PARAMS.sort === item.name) {
-            if (PARAMS.order === "desc") {
-              order = "asc";
-              svg = `<svg width="12" height="12" viewBox="0 0 16 16"><path fill-rule="evenodd" d="M8 1a.5.5 0 0 1 .5.5v11.793l3.146-3.147a.5.5 0 0 1 .708.708l-4 4a.5.5 0 0 1-.708 0l-4-4a.5.5 0 0 1 .708-.708L7.5 13.293V1.5A.5.5 0 0 1 8 1z"/></svg>`;
-            } else {
-              svg = `<svg width="12" height="12" viewBox="0 0 16 16"><path fill-rule="evenodd" d="M8 15a.5.5 0 0 0 .5-.5V2.707l3.146 3.147a.5.5 0 0 0 .708-.708l-4-4a.5.5 0 0 0-.708 0l-4 4a.5.5 0 1 0 .708.708L7.5 2.707V14.5a.5.5 0 0 0 .5.5z"/></svg>`;
-            }
+      .map((item) => {
+        let svg = `<svg width="12" height="12" viewBox="0 0 16 16"><path fill-rule="evenodd" d="M11.5 15a.5.5 0 0 0 .5-.5V2.707l3.146 3.147a.5.5 0 0 0 .708-.708l-4-4a.5.5 0 0 0-.708 0l-4 4a.5.5 0 1 0 .708.708L11 2.707V14.5a.5.5 0 0 0 .5.5zm-7-14a.5.5 0 0 1 .5.5v11.793l3.146-3.147a.5.5 0 0 1 .708.708l-4 4a.5.5 0 0 1-.708 0l-4-4a.5.5 0 0 1 .708-.708L4 13.293V1.5a.5.5 0 0 1 .5-.5z"/></svg>`;
+        let order = "desc";
+        if (PARAMS.sort === item.name) {
+          if (PARAMS.order === "desc") {
+            order = "asc";
+            svg = `<svg width="12" height="12" viewBox="0 0 16 16"><path fill-rule="evenodd" d="M8 1a.5.5 0 0 1 .5.5v11.793l3.146-3.147a.5.5 0 0 1 .708.708l-4 4a.5.5 0 0 1-.708 0l-4-4a.5.5 0 0 1 .708-.708L7.5 13.293V1.5A.5.5 0 0 1 8 1z"/></svg>`;
+          } else {
+            svg = `<svg width="12" height="12" viewBox="0 0 16 16"><path fill-rule="evenodd" d="M8 15a.5.5 0 0 0 .5-.5V2.707l3.146 3.147a.5.5 0 0 0 .708-.708l-4-4a.5.5 0 0 0-.708 0l-4 4a.5.5 0 1 0 .708.708L7.5 2.707V14.5a.5.5 0 0 0 .5.5z"/></svg>`;
           }
-          const qs = new URLSearchParams({
-            ...PARAMS,
-            order,
-            sort: item.name,
-          }).toString();
-          const icon = `<span>${svg}</span>`;
-          return `<th class="cell-${item.name}" ${item.props}><a href="?${qs}">${item.text}${icon}</a></th>`;
-        })
-        .join("\n")}
+        }
+        const qs = new URLSearchParams({
+          ...PARAMS,
+          order,
+          sort: item.name,
+        }).toString();
+        const icon = `<span>${svg}</span>`;
+        return `<th class="cell-${item.name}" ${item.props}><a href="?${qs}">${item.text}${icon}</a></th>`;
+      })
+      .join("\n")}
       <th class="cell-actions">Actions</th>
     </tr>
   `,
@@ -591,7 +485,7 @@ async function setupAuth() {
     $loginBtn.addEventListener("click", async () => {
       try {
         await checkAuth("login");
-      } catch {}
+      } catch { }
       location.reload();
     });
   }
@@ -911,35 +805,6 @@ async function addFileEntries(entries, dirs) {
   }
 }
 
-function newUrl(name) {
-  let url = baseUrl();
-  if (!url.endsWith("/")) url += "/";
-  url += name.split("/").map(encodeURIComponent).join("/");
-  return url;
-}
-
-function baseUrl() {
-  return location.href.split(/[?#]/)[0];
-}
-
-function baseName(url) {
-  return decodeURIComponent(
-    url
-      .split("/")
-      .filter((v) => v.length > 0)
-      .slice(-1)[0],
-  );
-}
-
-function extName(filename) {
-  const dotIndex = filename.lastIndexOf(".");
-
-  if (dotIndex === -1 || dotIndex === 0 || dotIndex === filename.length - 1) {
-    return "";
-  }
-
-  return filename.substring(dotIndex);
-}
 
 function getPathSvg(path_type) {
   switch (path_type) {
@@ -953,98 +818,3 @@ function getPathSvg(path_type) {
       return ICONS.file;
   }
 }
-
-function formatMtime(mtime) {
-  if (!mtime) return "";
-  const date = new Date(mtime);
-  const year = date.getFullYear();
-  const month = padZero(date.getMonth() + 1, 2);
-  const day = padZero(date.getDate(), 2);
-  const hours = padZero(date.getHours(), 2);
-  const minutes = padZero(date.getMinutes(), 2);
-  return `${year}-${month}-${day} ${hours}:${minutes}`;
-}
-
-function padZero(value, size) {
-  return ("0".repeat(size) + value).slice(-1 * size);
-}
-
-function formatDirSize(size) {
-  const unit = size === 1 ? "item" : "items";
-  const num =
-    size >= MAX_SUBPATHS_COUNT ? `>${MAX_SUBPATHS_COUNT - 1}` : `${size}`;
-  return ` ${num} ${unit}`;
-}
-
-function formatFileSize(size) {
-  if (size == null) return [0, "B"];
-  const sizes = ["B", "KB", "MB", "GB", "TB"];
-  if (size == 0) return [0, "B"];
-  const i = parseInt(Math.floor(Math.log(size) / Math.log(1024)));
-  let ratio = 1;
-  if (i >= 3) {
-    ratio = 100;
-  }
-  return [Math.round((size * ratio) / Math.pow(1024, i), 2) / ratio, sizes[i]];
-}
-
-function formatDuration(seconds) {
-  seconds = Math.ceil(seconds);
-  const h = Math.floor(seconds / 3600);
-  const m = Math.floor((seconds - h * 3600) / 60);
-  const s = seconds - h * 3600 - m * 60;
-  return `${padZero(h, 2)}:${padZero(m, 2)}:${padZero(s, 2)}`;
-}
-
-function formatPercent(percent) {
-  if (percent > 10) {
-    return percent.toFixed(1) + "%";
-  } else {
-    return percent.toFixed(2) + "%";
-  }
-}
-
-function encodedStr(rawStr) {
-  return rawStr.replace(/[\u00A0-\u9999<>\&]/g, function (i) {
-    return "&#" + i.charCodeAt(0) + ";";
-  });
-}
-
-async function assertResOK(res) {
-  if (!(res.status >= 200 && res.status < 300)) {
-    throw new Error((await res.text()) || `Invalid status ${res.status}`);
-  }
-}
-
-function getEncoding(contentType) {
-  const charset = contentType?.split(";")[1];
-  if (/charset/i.test(charset)) {
-    let encoding = charset.split("=")[1];
-    if (encoding) {
-      return encoding.toLowerCase();
-    }
-  }
-  return "utf-8";
-}
-
-// Parsing base64 strings with Unicode characters
-function decodeBase64(base64String) {
-  const binString = atob(base64String);
-  const len = binString.length;
-  const bytes = new Uint8Array(len);
-  const arr = new Uint32Array(bytes.buffer, 0, Math.floor(len / 4));
-  let i = 0;
-  for (; i < arr.length; i++) {
-    arr[i] =
-      binString.charCodeAt(i * 4) |
-      (binString.charCodeAt(i * 4 + 1) << 8) |
-      (binString.charCodeAt(i * 4 + 2) << 16) |
-      (binString.charCodeAt(i * 4 + 3) << 24);
-  }
-  for (i = i * 4; i < len; i++) {
-    bytes[i] = binString.charCodeAt(i);
-  }
-  return new TextDecoder().decode(bytes);
-}
-
-Object.assign(window, { Uploader });
