@@ -1,6 +1,8 @@
-import React from "https://esm.sh/react@18";
-import { createRoot } from "https://esm.sh/react-dom@18/client";
+// @ts-check
+import React from "https://esm.sh/react@18.3.1";
+import { createRoot } from "https://esm.sh/react-dom@18.3.1/client";
 import UploadButton from "./src/components/upload-button.js";
+import UploadTable from "./src/components/upload-table.js";
 
 /**
  * @typedef {object} PathItem
@@ -104,6 +106,7 @@ function registerComponent(name, component) {
 
 // Register React components
 registerComponent("UploadButton", UploadButton);
+registerComponent("UploadTable", UploadTable);
 
 /**
  * Mount React components to elements with data-react-component attribute
@@ -136,10 +139,7 @@ let $pathsTableHead;
  * @type Element
  */
 let $pathsTableBody;
-/**
- * @type Element
- */
-let $uploadersTable;
+
 /**
  * @type Element
  */
@@ -186,7 +186,6 @@ async function ready() {
   $pathsTable = document.querySelector(".paths-table");
   $pathsTableHead = document.querySelector(".paths-table thead");
   $pathsTableBody = document.querySelector(".paths-table tbody");
-  $uploadersTable = document.querySelector(".uploaders-table");
   $emptyFolder = document.querySelector(".empty-folder");
   $editor = document.querySelector(".editor");
   $loginBtn = document.querySelector(".login-btn");
@@ -220,10 +219,6 @@ class Uploader {
    * @param {string[]} pathParts
    */
   constructor(file, pathParts) {
-    /**
-     * @type Element
-     */
-    this.$uploadStatus = null;
     this.uploaded = 0;
     this.uploadOffset = 0;
     this.lastUptime = 0;
@@ -236,34 +231,10 @@ class Uploader {
   upload() {
     const { idx, name, url } = this;
     const encodedName = encodedStr(name);
-    $uploadersTable.insertAdjacentHTML(
-      "beforeend",
-      `
-  <tr id="upload${idx}" class="uploader">
-    <td class="path cell-icon">
-      ${getPathSvg()}
-    </td>
-    <td class="path cell-name">
-      <a href="${url}">${encodedName}</a>
-    </td>
-    <td class="cell-status upload-status" id="uploadStatus${idx}"></td>
-  </tr>`,
-    );
-    $uploadersTable.classList.remove("hidden");
     $emptyFolder.classList.add("hidden");
-    this.$uploadStatus = document.getElementById(`uploadStatus${idx}`);
-    this.$uploadStatus.innerHTML = "-";
-    this.$uploadStatus.addEventListener("click", (e) => {
-      const nodeId = e.target.id;
-      const matches = /^retry(\d+)$/.exec(nodeId);
-      if (matches) {
-        const id = parseInt(matches[1]);
-        let uploader = failUploaders.get(id);
-        if (uploader) uploader.retry();
-      }
-    });
     Uploader.queues.push(this);
     Uploader.runQueue();
+    return this;
   }
 
   ajax() {
@@ -316,32 +287,17 @@ class Uploader {
     const now = Date.now();
     const speed =
       ((event.loaded - this.uploaded) / (now - this.lastUptime)) * 1000;
-    const [speedValue, speedUnit] = formatFileSize(speed);
-    const speedText = `${speedValue} ${speedUnit}/s`;
-    const progress = formatPercent(
-      ((event.loaded + this.uploadOffset) / this.file.size) * 100,
-    );
-    const duration = formatDuration((event.total - event.loaded) / speed);
-    this.$uploadStatus.innerHTML = `<span style="width: 80px;">${speedText}</span><span>${progress} ${duration}</span>`;
     this.uploaded = event.loaded;
     this.lastUptime = now;
   }
 
   complete() {
-    const $uploadStatusNew = this.$uploadStatus.cloneNode(true);
-    $uploadStatusNew.innerHTML = `✓`;
-    this.$uploadStatus.parentNode.replaceChild(
-      $uploadStatusNew,
-      this.$uploadStatus,
-    );
-    this.$uploadStatus = null;
     failUploaders.delete(this.idx);
     Uploader.runnings--;
     Uploader.runQueue();
   }
 
   fail(reason = "") {
-    this.$uploadStatus.innerHTML = `<span style="width: 20px;" title="${reason}">✗</span><span class="retry-btn" id="retry${this.idx}" title="Retry">↻</span>`;
     failUploaders.set(this.idx, this);
     Uploader.runnings--;
     Uploader.runQueue();

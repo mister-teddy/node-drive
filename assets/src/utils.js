@@ -1,6 +1,11 @@
 // @ts-check
+import { observable, autorun } from "https://esm.sh/mobx@6.15.0";
 
-export * from "https://esm.sh/jotai@2";
+export { autorun };
+
+export const store = observable({
+  uploadQueue: [],
+});
 
 /**
  * Calculate SHA256 hash of a file with progress tracking using Web Crypto API

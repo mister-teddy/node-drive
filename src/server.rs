@@ -59,6 +59,8 @@ const INDEX_HTML: &str = include_str!("../assets/index.html");
 const INDEX_CSS: &str = include_str!("../assets/index.css");
 const INDEX_JS: &str = include_str!("../assets/index.js");
 const COMPONENT_UPLOAD_BUTTON: &str = include_str!("../assets/src/components/upload-button.js");
+const COMPONENT_UPLOAD_TABLE: &str = include_str!("../assets/src/components/upload-table.js");
+const UTILS_JS: &str = include_str!("../assets/src/utils.js");
 const FAVICON_ICO: &[u8] = include_bytes!("../assets/favicon.ico");
 const INDEX_NAME: &str = "index.html";
 const BUF_SIZE: usize = 65536;
@@ -776,6 +778,20 @@ impl Server {
                     }
                     "src/components/upload-button.js" => {
                         *res.body_mut() = body_full(COMPONENT_UPLOAD_BUTTON);
+                        res.headers_mut().insert(
+                            "content-type",
+                            HeaderValue::from_static("application/javascript; charset=UTF-8"),
+                        );
+                    }
+                    "src/components/upload-table.js" => {
+                        *res.body_mut() = body_full(COMPONENT_UPLOAD_TABLE);
+                        res.headers_mut().insert(
+                            "content-type",
+                            HeaderValue::from_static("application/javascript; charset=UTF-8"),
+                        );
+                    }
+                    "src/utils.js" => {
+                        *res.body_mut() = body_full(UTILS_JS);
                         res.headers_mut().insert(
                             "content-type",
                             HeaderValue::from_static("application/javascript; charset=UTF-8"),

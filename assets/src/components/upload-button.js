@@ -1,10 +1,13 @@
 // @ts-check
 
-import { createElement } from "https://esm.sh/react@18";
+import {
+  useState,
+  useEffect,
+  createElement,
+} from "https://esm.sh/react@18.3.1";
+import { store } from "../utils.js";
 
 export default function UploadButton({ DATA }) {
-  console.log({ DATA });
-
   if (!DATA.allow_upload) {
     return null;
   }
@@ -35,7 +38,9 @@ export default function UploadButton({ DATA }) {
       onChange: async (e) => {
         const files = e.target.files;
         for (let file of files) {
-          new Uploader(file, []).upload();
+          const result = new Uploader(file, []).upload();
+          console.log({ result });
+          store.uploadQueue = [...store.uploadQueue, result];
         }
       },
     }),
