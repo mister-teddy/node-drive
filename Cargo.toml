@@ -1,6 +1,6 @@
 [package]
 name = "node-drive"
-version = "1.1.2"
+version = "1.2.0"
 edition = "2021"
 authors = ["sigoden <sigoden@gmail.com>"]
 description = "Dufs is a distinctive utility file server"
@@ -55,6 +55,7 @@ pin-project-lite = "0.2"
 sha2 = "0.10.8"
 ed25519-dalek = "2.2.0"
 hex = "0.4.3"
+rusqlite = { version = "0.32", features = ["bundled"] }
 
 [features]
 default = ["tls"]

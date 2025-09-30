@@ -1,11 +1,7 @@
 // @ts-check
 
-import {
-  useState,
-  useEffect,
-  createElement,
-} from "../esm-imports.js";
-import { autorun, store, formatHashShort, formatHashDisplay, copyToClipboard } from "../utils.js";
+import { useState, createElement } from "../esm-imports.js";
+import { formatHashShort, formatHashDisplay, copyToClipboard, useStore } from "../utils.js";
 
 /**
  * @typedef {Object} DATA
@@ -16,44 +12,32 @@ import { autorun, store, formatHashShort, formatHashDisplay, copyToClipboard } f
  * @param {{ DATA: DATA }} props
  */
 export default function UploadTable({ DATA }) {
-  const [queue, setQueue] = useState([]);
+  const queue = useStore((store) => {
+    const queueSnapshot = store?.uploadQueue.map((uploader) => ({
+      name: uploader.name,
+      file: uploader.file,
+      status: uploader.status,
+      statusReason: uploader.statusReason,
+      progressValue: uploader.progressValue,
+      progressText: uploader.text?.progress,
+      speedText: uploader.text?.speed,
+      durationText: uploader.text?.duration,
+      sha256: uploader.sha256,
+      timestamp: uploader.timestamp,
+      bitcoinBlock: uploader.bitcoinBlock,
+      bitcoinConfirmed: uploader.bitcoinConfirmed,
+      // Computed properties (if needed)
+      isComplete: uploader.isComplete,
+      isUploading: uploader.isUploading,
+      isFailed: uploader.isFailed,
+      displayProgress: uploader.displayProgress
+    }));
+    return queueSnapshot;
+  })
   const [expandedHashes, setExpandedHashes] = useState(new Set());
   const [copiedHash, setCopiedHash] = useState(null);
   console.log({ queue })
 
-  useEffect(() => {
-    const disposer = autorun(() => {
-      // Access all observable properties to ensure reactivity
-      const queueSnapshot = store.uploadQueue.map((/** @type {any} */ uploader) => ({
-        // Copy all observable properties
-        idx: uploader.idx,
-        name: uploader.name,
-        file: uploader.file,
-        status: uploader.status,
-        statusReason: uploader.statusReason,
-        progressValue: uploader.progressValue,
-        progressText: uploader.progressText,
-        speedText: uploader.speedText,
-        durationText: uploader.durationText,
-        sha256: uploader.sha256,
-        timestampStatus: uploader.timestampStatus,
-        timestampBytes: uploader.timestampBytes,
-        timestampCreated: uploader.timestampCreated,
-        timestampError: uploader.timestampError,
-        bitcoinBlock: uploader.bitcoinBlock,
-        bitcoinConfirmed: uploader.bitcoinConfirmed,
-        // Include computed properties
-        isComplete: uploader.isComplete,
-        isUploading: uploader.isUploading,
-        isFailed: uploader.isFailed,
-        displayProgress: uploader.displayProgress
-      }));
-      setQueue(queueSnapshot);
-    });
-
-    // Clean up the autorun when component unmounts
-    return disposer;
-  }, []);
 
   /**
    * @param {number} bytes
@@ -160,19 +144,30 @@ export default function UploadTable({ DATA }) {
    * @returns {boolean}
    */
   const hasTimestamp = (uploader) => {
-    // For demo purposes - in real app this would check actual timestamp data
-    return uploader?.status === "complete" && uploader?.sha256;
+    // Check if timestamp exists and is complete
+    return uploader?.timestamp && uploader.timestamp.status === "complete";
   };
 
   /**
+   * @param {any} uploader
    * @returns {string}
    */
-  const getBitcoinTimestamp = () => {
-    const date = new Date();
-    const formatted = date.toLocaleDateString() + " " + date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
-    return `Verified on Bitcoin on ${formatted} (block 857382)`;
+  const getBitcoinTimestamp = (uploader) => {
+    if (uploader?.bitcoinBlock) {
+      // If block info is available, use it
+      const date = uploader.timestamp?.created
+        ? new Date(uploader.timestamp.created)
+        : new Date();
+      const formatted =
+        date.toLocaleDateString() +
+        " " +
+        date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      return `Verified on Bitcoin on ${formatted} (block ${uploader.bitcoinBlock})`;
+    }
+    // Fallback
+    return "Verified on Bitcoin (block info pending)";
   };
-  if (!DATA.allow_upload || queue.length === 0) {
+  if (!DATA.allow_upload || !queue || queue.length === 0) {
     return null;
   }
 
@@ -203,7 +198,7 @@ export default function UploadTable({ DATA }) {
     createElement(
       "div",
       { style: { maxHeight: "300px", overflowY: "auto" } },
-      queue.map((/** @type {any} */ item, /** @type {number} */ index) => {
+      queue.map((item, index) => {
         const uploader = item;
         const status = getStatus(uploader);
         const statusIcon = getStatusIcon(status);
@@ -284,11 +279,11 @@ export default function UploadTable({ DATA }) {
                   },
                 },
                 formatFileSize(uploader?.file?.size || 0),
-                uploader?.displayProgress && uploader.displayProgress !== status
+                uploader?.progressText && uploader.progressText !== status
                   ? createElement(
                     "span",
                     { style: { color: statusColor } },
-                    `• ${uploader.displayProgress}`,
+                    `• ${uploader.progressText}`,
                   )
                   : null,
               ),
@@ -402,7 +397,7 @@ export default function UploadTable({ DATA }) {
                     marginBottom: "4px",
                   },
                 },
-                "✅ Filed verified by me",
+                "✅ File verified by me",
               ) : null,
               hasTimestamp(uploader) ? createElement(
                 "div",
@@ -411,7 +406,7 @@ export default function UploadTable({ DATA }) {
                     color: "#00C851",
                   },
                 },
-                `✅ ${getBitcoinTimestamp()}`,
+                `✅ ${getBitcoinTimestamp(uploader)}`,
               ) : null,
             ),
             // Cryptographic details side
@@ -487,7 +482,9 @@ export default function UploadTable({ DATA }) {
                       marginBottom: "2px",
                     },
                   },
-                  "block #857382:",
+                  uploader.bitcoinBlock
+                    ? `block #${uploader.bitcoinBlock}:`
+                    : "block: (pending)",
                 ),
                 createElement(
                   "span",

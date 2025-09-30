@@ -171,15 +171,6 @@ pub fn build_cli() -> Command {
                 .help("Serve SPA(Single Page Application)"),
         )
         .arg(
-            Arg::new("assets")
-                .env("DUFS_ASSETS")
-				.hide_env(true)
-                .long("assets")
-                .help("Set the path to the assets directory for overriding the built-in assets")
-                .value_parser(value_parser!(PathBuf))
-                .value_name("path")
-        )
-        .arg(
             Arg::new("log-format")
                 .env("DUFS_LOG_FORMAT")
                 .hide_env(true)
@@ -234,6 +225,16 @@ pub fn build_cli() -> Command {
                 .help("Path to the SSL/TLS certificate's private key"),
         );
 
+    let app = app.arg(
+        Arg::new("provenance-db")
+            .env("DUFS_PROVENANCE_DB")
+            .hide_env(true)
+            .long("provenance-db")
+            .value_name("path")
+            .value_parser(value_parser!(PathBuf))
+            .help("Path to SQLite database for provenance data [default: provenance.db]"),
+    );
+
     app
 }
 
@@ -286,6 +287,9 @@ pub struct Args {
     pub compress: Compress,
     pub tls_cert: Option<PathBuf>,
     pub tls_key: Option<PathBuf>,
+    #[serde(default = "default_provenance_db")]
+    #[default(default_provenance_db())]
+    pub provenance_db: Option<PathBuf>,
 }
 
 impl Args {
@@ -409,6 +413,10 @@ impl Args {
         {
             args.tls_cert = None;
             args.tls_key = None;
+        }
+
+        if let Some(provenance_db) = matches.get_one::<PathBuf>("provenance-db") {
+            args.provenance_db = Some(provenance_db.clone());
         }
 
         Ok(args)
@@ -593,6 +601,10 @@ fn default_addrs() -> Vec<BindAddr> {
 
 fn default_port() -> u16 {
     5000
+}
+
+fn default_provenance_db() -> Option<PathBuf> {
+    Some(PathBuf::from("provenance.db"))
 }
 
 #[cfg(test)]

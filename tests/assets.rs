@@ -1,11 +1,8 @@
 mod fixtures;
 mod utils;
 
-use assert_cmd::prelude::*;
-use assert_fs::fixture::TempDir;
-use fixtures::{port, server, tmpdir, wait_for_port, Error, TestServer, DIR_ASSETS};
+use fixtures::{server, Error, TestServer};
 use rstest::rstest;
-use std::process::{Command, Stdio};
 
 #[rstest]
 fn assets(server: TestServer) -> Result<(), Error> {
@@ -33,7 +30,7 @@ fn asset_js(server: TestServer) -> Result<(), Error> {
     assert_eq!(resp.status(), 200);
     assert_eq!(
         resp.headers().get("content-type").unwrap(),
-        "application/javascript; charset=UTF-8"
+        "text/javascript; charset=UTF-8"
     );
     Ok(())
 }
@@ -94,33 +91,8 @@ fn asset_js_with_prefix(
     assert_eq!(resp.status(), 200);
     assert_eq!(
         resp.headers().get("content-type").unwrap(),
-        "application/javascript; charset=UTF-8"
+        "text/javascript; charset=UTF-8"
     );
     Ok(())
 }
 
-#[rstest]
-fn assets_override(tmpdir: TempDir, port: u16) -> Result<(), Error> {
-    let mut child = Command::cargo_bin("node-drive")?
-        .arg(tmpdir.path())
-        .arg("-p")
-        .arg(port.to_string())
-        .arg("--assets")
-        .arg(tmpdir.join(DIR_ASSETS))
-        .stdout(Stdio::piped())
-        .spawn()?;
-
-    wait_for_port(port);
-
-    let url = format!("http://localhost:{port}");
-    let resp = reqwest::blocking::get(&url)?;
-    assert!(resp.text()?.starts_with(&format!(
-        "/__dufs_v{}__/index.js;<template id=\"index-data\">",
-        env!("CARGO_PKG_VERSION")
-    )));
-    let resp = reqwest::blocking::get(&url)?;
-    assert_resp_paths!(resp);
-
-    child.kill()?;
-    Ok(())
-}

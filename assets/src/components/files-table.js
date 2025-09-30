@@ -35,11 +35,58 @@ export default function FilesTable({ DATA }) {
   const [paths, setPaths] = useState(DATA.paths || []);
   const [expandedSignatures, setExpandedSignatures] = useState(new Set());
   const [copiedHash, setCopiedHash] = useState(null);
+  const [provenanceData, setProvenanceData] = useState(/** @type {Map<string, any>} */(new Map()));
+  const [loadingProvenance, setLoadingProvenance] = useState(/** @type {Set<string>} */(new Set()));
 
   useEffect(() => {
     // Update paths when DATA changes
     setPaths(DATA.paths || []);
+    // Fetch provenance data for all files
+    fetchAllProvenance();
   }, [DATA.paths]);
+
+  /**
+   * Fetch provenance data for all files
+   */
+  const fetchAllProvenance = async () => {
+    const filesToFetch = (DATA.paths || []).filter(
+      (/** @type {PathItem} */ p) => !p.path_type.endsWith("Dir")
+    );
+
+    for (const file of filesToFetch) {
+      fetchProvenanceData(file.name);
+    }
+  };
+
+  /**
+   * Fetch provenance data for a specific file
+   * @param {string} fileName
+   */
+  const fetchProvenanceData = async (fileName) => {
+    if (loadingProvenance.has(fileName) || provenanceData.has(fileName)) {
+      return;
+    }
+
+    setLoadingProvenance((prev) => new Set(prev).add(fileName));
+
+    try {
+      const url = newUrl(fileName) + "?manifest=json";
+      const response = await fetch(url);
+
+      if (response.ok) {
+        const manifest = await response.json();
+        setProvenanceData((prev) => new Map(prev).set(fileName, manifest));
+      }
+    } catch (error) {
+      console.error(`Failed to fetch provenance for ${fileName}:`, error);
+    } finally {
+      setLoadingProvenance((prev) => {
+        const next = new Set(prev);
+        next.delete(fileName);
+        return next;
+      });
+    }
+  };
 
   /**
    * @param {string} name
@@ -53,20 +100,6 @@ export default function FilesTable({ DATA }) {
     return href + encodeURIComponent(name);
   };
 
-  /**
-   * @param {string} hash
-   * @param {number} index
-   */
-  const toggleSignatureExpanded = (hash, index) => {
-    const newExpanded = new Set(expandedSignatures);
-    const key = `${index}-${hash}`;
-    if (newExpanded.has(key)) {
-      newExpanded.delete(key);
-    } else {
-      newExpanded.add(key);
-    }
-    setExpandedSignatures(newExpanded);
-  };
 
   /**
    * @param {string} text
@@ -96,57 +129,188 @@ export default function FilesTable({ DATA }) {
   };
 
   /**
-   * @typedef {Object} ProvenanceEvent
-   * @property {string} type
-   * @property {string} timestamp
-   * @property {string} actor
-   * @property {string} signature
-   * @property {string} ots_proof
-   * @property {string|null} previous_hash
+   * Check if OTS proof is still pending (placeholder)
+   * @param {string} otsProof
+   * @returns {boolean}
    */
+  const isOtsPending = (otsProof) => {
+    // OTS proof is pending if it's the placeholder value
+    return otsProof === "UExBQ0VIT0xERVJfT1RTX1BST09G" || otsProof.startsWith("PLACEHOLDER");
+  };
 
   /**
-   * @typedef {Object} ProvenanceManifest
-   * @property {string} manifest_version
-   * @property {Object} artifact
-   * @property {ProvenanceEvent[]} events
+   * Render verification stamps for a file
+   * @param {string} fileName
+   * @returns {import("../esm-imports.js").ReactElement | null}
    */
+  const renderVerificationStamps = (fileName) => {
+    const manifest = provenanceData.get(fileName);
+    const isLoading = loadingProvenance.has(fileName);
 
-  /**
-   * @param {PathItem} file
-   * @returns {ProvenanceManifest|null}
-   */
-  const getMockProvenanceData = (file) => {
-    // Mock provenance data for demo - in production this would come from the server
-    if (file.sha256) {
-      return {
-        manifest_version: "provenance.manifest/v1",
-        artifact: {
-          name: file.name,
-          sha256: file.sha256,
-          size: file.size,
+    if (isLoading) {
+      return createElement(
+        "div",
+        {
+          style: {
+            display: "flex",
+            flexDirection: "column",
+            gap: "2px",
+            fontSize: "10px",
+          },
         },
-        events: [
+        createElement(
+          "div",
           {
-            type: "mint",
-            timestamp: new Date(file.mtime * 1000).toISOString(),
-            actor: DATA.user || "anonymous",
-            signature: "ed25519:3045022100...",
-            ots_proof: "AE07..." + file.sha256.slice(0, 32),
-            previous_hash: null,
+            style: {
+              display: "flex",
+              alignItems: "center",
+              gap: "4px",
+              color: "#999",
+            },
           },
-          {
-            type: "transfer",
-            timestamp: new Date(file.mtime * 1000 + 3600000).toISOString(),
-            actor: "alice@example.com",
-            signature: "ed25519:3046022100...",
-            ots_proof: "AE08..." + file.sha256.slice(0, 32),
-            previous_hash: file.sha256.slice(0, 16) + "...",
-          },
-        ],
-      };
+          createElement(
+            "span",
+            {
+              style: {
+                display: "inline-block",
+                width: "10px",
+                height: "10px",
+                border: "2px solid #ddd",
+                borderTopColor: "#666",
+                borderRadius: "50%",
+                animation: "spin 0.6s linear infinite",
+              },
+            },
+          ),
+          "Loading...",
+        ),
+      );
     }
-    return null;
+
+    if (!manifest || !manifest.events || manifest.events.length === 0) {
+      return createElement(
+        "span",
+        {
+          style: {
+            color: "#999",
+            fontSize: "11px",
+          },
+        },
+        "—",
+      );
+    }
+
+    const latestEvent = manifest.events[manifest.events.length - 1];
+    const isPending = isOtsPending(latestEvent.ots_proof_b64 || "");
+    const hashShort = formatHashShort(manifest.artifact.sha256_hex);
+
+    return createElement(
+      "div",
+      {
+        style: {
+          display: "flex",
+          flexDirection: "column",
+          gap: "3px",
+          fontSize: "10px",
+          lineHeight: "1.3",
+        },
+      },
+      // File integrity stamp
+      createElement(
+        "div",
+        {
+          style: {
+            display: "flex",
+            alignItems: "center",
+            gap: "4px",
+          },
+        },
+        createElement(
+          "span",
+          { style: { fontSize: "12px" } },
+          "✓",
+        ),
+        createElement(
+          "span",
+          { style: { color: "#00C851", fontWeight: "500" } },
+          "File not altered:",
+        ),
+        createElement(
+          "span",
+          {
+            style: {
+              fontFamily: "monospace",
+              color: "#666",
+              fontSize: "9px",
+            },
+          },
+          hashShort,
+        ),
+      ),
+      // Ownership stamp
+      manifest.events.length > 0 && createElement(
+        "div",
+        {
+          style: {
+            display: "flex",
+            alignItems: "center",
+            gap: "4px",
+          },
+        },
+        createElement(
+          "span",
+          { style: { fontSize: "12px" } },
+          "✓",
+        ),
+        createElement(
+          "span",
+          { style: { color: "#0073e6", fontWeight: "500" } },
+          `Filed by ${latestEvent.action === "mint" ? "creator" : "owner"}`,
+        ),
+      ),
+      // Bitcoin verification stamp
+      createElement(
+        "div",
+        {
+          style: {
+            display: "flex",
+            alignItems: "center",
+            gap: "4px",
+          },
+        },
+        isPending
+          ? createElement(
+            "span",
+            {
+              style: {
+                fontSize: "12px",
+                color: "#FFA000",
+              },
+            },
+            "⏳",
+          )
+          : createElement(
+            "span",
+            { style: { fontSize: "12px" } },
+            "✓",
+          ),
+        createElement(
+          "span",
+          {
+            style: {
+              color: isPending ? "#FFA000" : "#00C851",
+              fontWeight: "500",
+            },
+          },
+          isPending ? "Bitcoin anchoring pending..." : "Verified on Bitcoin",
+        ),
+        !isPending && latestEvent.issued_at && createElement(
+          "span",
+          { style: { color: "#999", fontSize: "9px" } },
+          new Date(latestEvent.issued_at).toLocaleDateString(),
+        ),
+      ),
+    );
   };
 
   /**
@@ -233,6 +397,19 @@ export default function FilesTable({ DATA }) {
     return null;
   }
 
+  // Add spinner animation CSS if not already present
+  if (!document.getElementById("provenance-spinner-style")) {
+    const style = document.createElement("style");
+    style.id = "provenance-spinner-style";
+    style.textContent = `
+      @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
   return createElement(
     "div",
     {
@@ -274,10 +451,9 @@ export default function FilesTable({ DATA }) {
         const isDir = file.path_type.endsWith("Dir");
         const url = newUrl(file.name) + (isDir ? "/" : "");
         const encodedName = encodedStr(file.name);
-        const hash = file.sha256 || "";
-        const shortHash = formatHashShort(hash);
-        const isExpanded = expandedSignatures.has(`${index}-${hash}`);
-        const provenance = getMockProvenanceData(file);
+        const manifest = provenanceData.get(file.name);
+        const hash = manifest?.artifact?.sha256_hex || "";
+        const isExpanded = expandedSignatures.has(`${index}-${file.name}`);
 
         let sizeDisplay = isDir
           ? formatDirSize(file.size)
@@ -339,40 +515,25 @@ export default function FilesTable({ DATA }) {
               { style: { color: "#666", fontSize: "12px" } },
               sizeDisplay,
             ),
-            // Digital Signature
+            // Digital Signature - show verification stamps or expand button
             createElement(
               "div",
               {
                 style: {
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "4px",
+                  cursor: manifest && !isDir ? "pointer" : "default",
                 },
+                onClick: manifest && !isDir ? () => {
+                  const newExpanded = new Set(expandedSignatures);
+                  const key = `${index}-${file.name}`;
+                  if (newExpanded.has(key)) {
+                    newExpanded.delete(key);
+                  } else {
+                    newExpanded.add(key);
+                  }
+                  setExpandedSignatures(newExpanded);
+                } : undefined,
               },
-              hash
-                ? createElement(
-                  "button",
-                  {
-                    onClick: () => toggleSignatureExpanded(hash, index),
-                    style: {
-                      background: "none",
-                      border: "1px solid #ddd",
-                      color: "#0073e6",
-                      cursor: "pointer",
-                      fontSize: "11px",
-                      fontFamily: "monospace",
-                      padding: "4px 8px",
-                      borderRadius: "3px",
-                      backgroundColor: "#f5f5f5",
-                    },
-                  },
-                  isExpanded ? "Hide" : shortHash,
-                )
-                : createElement(
-                  "span",
-                  { style: { color: "#999", fontSize: "11px" } },
-                  "—",
-                ),
+              isDir ? createElement("span", { style: { color: "#999", fontSize: "11px" } }, "—") : renderVerificationStamps(file.name),
             ),
             // Actions
             createElement(
@@ -440,7 +601,7 @@ export default function FilesTable({ DATA }) {
             ),
           ),
           // Expanded ownership log
-          isExpanded && provenance
+          isExpanded && manifest
             ? createElement(
               "div",
               {
@@ -530,9 +691,9 @@ export default function FilesTable({ DATA }) {
                     fontWeight: "600",
                   },
                 },
-                `Provenance Events (${provenance.events.length}):`,
+                `Provenance Events (${manifest.events.length}):`,
               ),
-              ...provenance.events.map((/** @type {any} */ event, /** @type {number} */ eventIndex) =>
+              ...manifest.events.map((/** @type {any} */ event, /** @type {number} */ eventIndex) =>
                 createElement(
                   "div",
                   {
@@ -560,17 +721,17 @@ export default function FilesTable({ DATA }) {
                       {
                         style: {
                           fontWeight: "600",
-                          color: event.type === "mint" ? "#00C851" : "#0073e6",
+                          color: event.action === "mint" ? "#00C851" : "#0073e6",
                           textTransform: "uppercase",
                           fontSize: "10px",
                         },
                       },
-                      event.type,
+                      event.action,
                     ),
                     createElement(
                       "span",
                       { style: { color: "#999", fontSize: "10px" } },
-                      new Date(event.timestamp).toLocaleString(),
+                      new Date(event.issued_at).toLocaleString(),
                     ),
                   ),
                   // Actor
@@ -584,8 +745,17 @@ export default function FilesTable({ DATA }) {
                     ),
                     createElement(
                       "span",
-                      { style: { color: "#333", fontWeight: "500" } },
-                      event.actor,
+                      {
+                        style: {
+                          color: "#333",
+                          fontWeight: "500",
+                          fontFamily: "monospace",
+                          fontSize: "9px",
+                        },
+                      },
+                      event.actors?.creator_pubkey_hex?.slice(0, 16) + "..." ||
+                      event.actors?.new_owner_pubkey_hex?.slice(0, 16) + "..." ||
+                      "Unknown",
                     ),
                   ),
                   // Signature
@@ -608,9 +778,10 @@ export default function FilesTable({ DATA }) {
                         style: {
                           fontFamily: "monospace",
                           color: "#333",
+                          fontSize: "9px",
                         },
                       },
-                      event.signature,
+                      (event.signatures?.creator_sig_hex || event.signatures?.new_owner_sig_hex || "N/A").slice(0, 32) + "...",
                     ),
                   ),
                   // OTS Proof
@@ -618,7 +789,7 @@ export default function FilesTable({ DATA }) {
                     "div",
                     {
                       style: {
-                        marginBottom: event.previous_hash ? "4px" : "0",
+                        marginBottom: event.prev_event_hash_hex ? "4px" : "0",
                         fontSize: "10px",
                       },
                     },
@@ -632,14 +803,17 @@ export default function FilesTable({ DATA }) {
                       {
                         style: {
                           fontFamily: "monospace",
-                          color: "#333",
+                          color: isOtsPending(event.ots_proof_b64) ? "#FFA000" : "#333",
+                          fontSize: "9px",
                         },
                       },
-                      event.ots_proof.slice(0, 24) + "...",
+                      isOtsPending(event.ots_proof_b64)
+                        ? "⏳ Pending Bitcoin confirmation..."
+                        : (event.ots_proof_b64?.slice(0, 24) || "N/A") + "...",
                     ),
                   ),
                   // Previous hash (if exists)
-                  event.previous_hash
+                  event.prev_event_hash_hex
                     ? createElement(
                       "div",
                       { style: { fontSize: "10px" } },
@@ -654,9 +828,10 @@ export default function FilesTable({ DATA }) {
                           style: {
                             fontFamily: "monospace",
                             color: "#333",
+                            fontSize: "9px",
                           },
                         },
-                        event.previous_hash,
+                        event.prev_event_hash_hex.slice(0, 16) + "...",
                       ),
                     )
                     : null,
@@ -675,9 +850,9 @@ export default function FilesTable({ DATA }) {
                   },
                 },
                 createElement(
-                  "div",
-                  { style: { marginBottom: "4px" } },
-                  `📄 Manifest Version: ${provenance.manifest_version}`,
+                  "a",
+                  { style: { marginBottom: "4px" }, href: newUrl(file.name) + "?manifest=json", target: "_blank" },
+                  `📄 Manifest Version: ${manifest.type || "provenance.manifest/v1"}`,
                 ),
                 createElement(
                   "div",

@@ -1,10 +1,20 @@
 // @ts-check
-import { observable } from "./esm-imports.js";
-export { autorun, toJS } from "./esm-imports.js";
+import { autorun, observable, useEffect, useState } from "./esm-imports.js";
 
-export const store = observable({
+/**
+ * An object for storing application data.
+ * @type {{uploadQueue: Array<import("./node-drive.js").Uploader>}}
+ */
+const storeData = {
   uploadQueue: [],
-});
+}
+
+/**
+ * An observable store initialized with the provided store data.
+ * 
+ * @type {typeof storeData}
+ */
+export const store = observable(storeData);
 
 /**
  * Memory-efficient SHA256 calculation using FileReader for better handling of large files
@@ -331,11 +341,32 @@ export async function stamp(filename, hash) {
     detached.serialize(ctx);
     const timestampBytes = ctx.getOutput();
 
+    const extractedFileExtension = filename.match(/\.[0-9a-z]+$/i);
+    const isOtsExt = extractedFileExtension !== null && extractedFileExtension.length > 0 && extractedFileExtension[0] === ".ots";
+    const otsFilename = filename + (isOtsExt ? '' : '.ots')
+
+    download(otsFilename, timestampBytes);
+
     return { filename, timestampBytes };
   } catch (error) {
     console.error("OpenTimestamps stamping error:", error);
     return null;
   }
+}
+
+/**
+ * Trigger download of a file with given filename and byte content
+ * @param {string} filename - Name of the file to download
+ * @param {BlobPart} bytes - Byte content of the file
+ */
+export function download(filename, bytes) {
+  var blob = new Blob([bytes], { type: "octet/stream" });
+  var link = document.createElement('a');
+  link.href = window.URL.createObjectURL(blob);
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
 }
 
 export function hexToBytes(/** @type {string} */ hex) {
@@ -401,4 +432,20 @@ export async function copyToClipboard(text) {
       document.body.removeChild(textArea);
     }
   }
+}
+/**
+ * React hook for subscribing to observable store changes using a selector function.
+ *
+ * @template T
+ * @param {(store?: typeof storeData) => T} selector - Function to select a value from the store.
+ * @returns {T} The selected value from the store, reactive to changes.
+ */
+export function useStore(selector) {
+  const [data, setData] = useState(selector());
+
+  useEffect(() => autorun(() => {
+    setData(selector(store));
+  }), []);
+
+  return data;
 }
