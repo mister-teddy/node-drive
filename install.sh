@@ -100,6 +100,10 @@ check_dependencies() {
         missing+=("unzip")
     fi
 
+    if ! command -v openssl >/dev/null 2>&1; then
+        missing+=("openssl")
+    fi
+
     if [[ ${#missing[@]} -gt 0 ]]; then
         log_error "Missing required tools: ${missing[*]}"
         log_info "Please install the missing tools and try again"
@@ -232,11 +236,79 @@ main() {
         log_info "Created $node_drive_dir directory"
     fi
 
-    # Create systemd service
-    log_info "Creating systemd service..."
+    # Generate self-signed TLS certificates if they don't exist
+    local cert_dir="$INSTALL_DIR/certs"
+    local cert_file="$cert_dir/cert.pem"
+    local key_file="$cert_dir/key.pem"
+
+    if [[ ! -f "$cert_file" ]] || [[ ! -f "$key_file" ]]; then
+        log_info "Generating self-signed TLS certificates..."
+        sudo mkdir -p "$cert_dir"
+
+        # Get external IP for certificate
+        local external_ip
+        external_ip=$(curl -4 -s ifconfig.me 2>/dev/null || curl -4 -s ipinfo.io/ip 2>/dev/null || echo "localhost")
+
+        # Generate self-signed certificate valid for 365 days
+        sudo openssl req -x509 -newkey rsa:4096 -nodes \
+            -keyout "$key_file" \
+            -out "$cert_file" \
+            -days 365 \
+            -subj "/C=US/ST=State/L=City/O=Organization/CN=$external_ip" \
+            -addext "subjectAltName=IP:$external_ip,DNS:localhost" \
+            2>/dev/null
+
+        # Set proper ownership and permissions for the service user to read
+        sudo chown root:root "$key_file" "$cert_file"
+        sudo chmod 644 "$key_file"
+        sudo chmod 644 "$cert_file"
+
+        log_info "Generated self-signed certificates at $cert_dir"
+        log_warn "Self-signed certificates will show security warnings in browsers"
+        log_info "For production, consider using Let's Encrypt certificates"
+    else
+        log_info "TLS certificates already exist at $cert_dir"
+    fi
+
+    # Create systemd service for HTTPS (primary service)
+    log_info "Creating systemd service for HTTPS..."
     sudo tee /etc/systemd/system/${SERVICE_NAME}.service > /dev/null <<EOF
 [Unit]
-Description=Dufs File Server
+Description=Node Drive File Server with Provenance (HTTPS)
+After=network.target
+
+[Service]
+Type=simple
+User=$USER
+WorkingDirectory=$node_drive_dir
+ExecStart=$INSTALL_DIR/$BINARY_NAME --bind 0.0.0.0 --port 443 --tls-cert $cert_file --tls-key $key_file $node_drive_dir
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+# Security settings
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=no
+ReadWritePaths=$node_drive_dir
+ReadOnlyPaths=$cert_dir
+PrivateTmp=yes
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+
+# Environment variables
+Environment=RUST_LOG=info
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    # Create systemd service for HTTP (redirect service)
+    log_info "Creating systemd service for HTTP redirect..."
+    sudo tee /etc/systemd/system/${SERVICE_NAME}-http.service > /dev/null <<EOF
+[Unit]
+Description=Node Drive File Server with Provenance (HTTP Redirect)
 After=network.target
 
 [Service]
@@ -265,24 +337,28 @@ Environment=RUST_LOG=info
 WantedBy=multi-user.target
 EOF
 
-    # Reload systemd and enable service
+    # Reload systemd and enable both services
     sudo systemctl daemon-reload
     sudo systemctl enable ${SERVICE_NAME}
+    sudo systemctl enable ${SERVICE_NAME}-http
 
     # Verify installation
     if "$INSTALL_DIR/$BINARY_NAME" --version >/dev/null 2>&1; then
         log_info "Installation complete!"
         log_info "Binary installed to: $INSTALL_DIR/$BINARY_NAME"
-        log_info "Service created: $SERVICE_NAME"
+        log_info "Services created: $SERVICE_NAME (HTTPS) and ${SERVICE_NAME}-http (HTTP)"
         log_info ""
-        log_info "To start the service:"
+        log_info "To start both services:"
         log_info "  sudo systemctl start $SERVICE_NAME"
+        log_info "  sudo systemctl start ${SERVICE_NAME}-http"
         log_info ""
         log_info "To check service status:"
         log_info "  sudo systemctl status $SERVICE_NAME"
+        log_info "  sudo systemctl status ${SERVICE_NAME}-http"
         log_info ""
         log_info "To view logs:"
         log_info "  sudo journalctl -u $SERVICE_NAME -f"
+        log_info "  sudo journalctl -u ${SERVICE_NAME}-http -f"
         log_info ""
         log_info "To run manually (for testing):"
         log_info "  cd $INSTALL_DIR && ./$BINARY_NAME"
@@ -291,8 +367,13 @@ EOF
         local external_ip
         external_ip=$(curl -4 -s ifconfig.me 2>/dev/null || curl -4 -s ipinfo.io/ip 2>/dev/null || echo "34.42.164.242")
 
-        log_info "Default configuration serves ~/node-drive on port 80"
-        log_info "Web interface will be available at: http://$external_ip"
+        log_info "Default configuration serves ~/node-drive on ports 80 (HTTP) and 443 (HTTPS)"
+        log_info "Web interface available at:"
+        log_info "  HTTP:  http://$external_ip"
+        log_info "  HTTPS: https://$external_ip"
+        log_info ""
+        log_warn "Note: HTTPS uses self-signed certificates. Browsers will show security warnings."
+        log_info "For provenance features (file hashing), use HTTPS to enable crypto.subtle API."
     else
         log_error "Installation verification failed"
         exit 1

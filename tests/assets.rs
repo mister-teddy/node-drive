@@ -95,4 +95,3 @@ fn asset_js_with_prefix(
     );
     Ok(())
 }
-

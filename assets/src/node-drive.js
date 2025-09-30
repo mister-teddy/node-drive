@@ -161,6 +161,13 @@ export class Uploader {
     }
 
     async upload() {
+        // Check for secure context (HTTPS required for crypto.subtle)
+        if (!window.isSecureContext) {
+            this.setFailed("HTTPS required for provenance features");
+            showInsecureContextWarning();
+            return;
+        }
+
         // SHA256 hash calculation
         this.sha256 = await calculateSHA256(this.file, (/** @type {number} */ progress) => {
             console.log(`Progress: ${progress}%`);
@@ -455,5 +462,102 @@ Uploader.runQueue = async () => {
     }
     uploader.ajax();
 };
+
+/**
+ * Show warning modal when user attempts upload in non-secure context
+ */
+function showInsecureContextWarning() {
+    // Check if modal already exists
+    if (document.getElementById('insecure-context-modal')) {
+        return;
+    }
+
+    // Create modal overlay
+    const modal = document.createElement('div');
+    modal.id = 'insecure-context-modal';
+    modal.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background-color: rgba(0, 0, 0, 0.5);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 10000;
+        padding: 20px;
+    `;
+
+    // Create modal content
+    const modalContent = document.createElement('div');
+    modalContent.style.cssText = `
+        background-color: #fff;
+        border-radius: 8px;
+        padding: 24px;
+        max-width: 500px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    `;
+
+    // Create modal HTML
+    modalContent.innerHTML = `
+        <div style="margin-bottom: 16px;">
+            <h3 style="margin: 0 0 12px 0; color: #d32f2f; font-size: 18px;">
+                ⚠️ Secure Context Required
+            </h3>
+            <p style="margin: 0 0 12px 0; color: #333; font-size: 14px; line-height: 1.5;">
+                File provenance features require a secure context (HTTPS) to work properly.
+                The <code>crypto.subtle</code> API used for file hashing is only available over HTTPS.
+            </p>
+            <p style="margin: 0 0 16px 0; color: #666; font-size: 13px; line-height: 1.5;">
+                Please switch to the HTTPS version of this site to upload files with cryptographic provenance.
+            </p>
+        </div>
+        <div style="display: flex; gap: 12px; justify-content: flex-end;">
+            <button id="insecure-modal-close" style="
+                padding: 8px 16px;
+                background: #f5f5f5;
+                border: 1px solid #ddd;
+                border-radius: 4px;
+                cursor: pointer;
+                font-size: 14px;
+                color: #333;
+            ">Cancel</button>
+            <button id="insecure-modal-redirect" style="
+                padding: 8px 16px;
+                background: #2196F3;
+                border: none;
+                border-radius: 4px;
+                cursor: pointer;
+                font-size: 14px;
+                color: white;
+                font-weight: 500;
+            ">Switch to HTTPS</button>
+        </div>
+    `;
+
+    modal.appendChild(modalContent);
+    document.body.appendChild(modal);
+
+    // Add event listeners
+    const closeBtn = document.getElementById('insecure-modal-close');
+    const redirectBtn = document.getElementById('insecure-modal-redirect');
+
+    const closeModal = () => {
+        modal.remove();
+    };
+
+    closeBtn?.addEventListener('click', closeModal);
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) {
+            closeModal();
+        }
+    });
+
+    redirectBtn?.addEventListener('click', () => {
+        const httpsUrl = window.location.href.replace(/^http:/, 'https:');
+        window.location.href = httpsUrl;
+    });
+}
 
 Object.assign(window, { Uploader });
