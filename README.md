@@ -1,420 +1,208 @@
-# Dufs
+# Node Drive
 
-[![CI](https://github.com/sigoden/dufs/actions/workflows/ci.yaml/badge.svg)](https://github.com/sigoden/dufs/actions/workflows/ci.yaml)
-[![Crates](https://img.shields.io/crates/v/dufs.svg)](https://crates.io/crates/dufs)
-[![Docker Pulls](https://img.shields.io/docker/pulls/sigoden/dufs)](https://hub.docker.com/r/sigoden/dufs)
+**Digital ownership, made possible with Bitcoin**
 
-Dufs is a distinctive utility file server that supports static serving, uploading, searching, accessing control, webdav...
+Node Drive is a fork of [dufs](https://github.com/sigoden/dufs), enhanced with a universal provenance layer for digital content. It combines the power of file sharing with cryptographic proof of authenticity, authorship, and ownership anchored to Bitcoin's blockchain.
 
-![demo](https://user-images.githubusercontent.com/4012553/220513063-ff0f186b-ac54-4682-9af4-47a9781dee0d.png)
+## Vision
+
+We're building a universal provenance layer for digital content—files, posts, AI-generated images and videos—that lets anyone:
+
+- **Verify authenticity**: Confirm content is intact, who claimed it, and when
+- **Prove authorship**: Cryptographically anchored to Bitcoin time using OpenTimestamps
+- **Transfer ownership**: Maintain a clear, tamper-evident chain of custody
+
+This goes beyond simple timestamping. It's a cheap, open, infinitely scalable intellectual property layer for the internet. In an era of generative AI, knowing who created what, and when, is critical.
+
+## How It Works
+
+**Digital fingerprint (file) + Your signature → Anchored in Bitcoin (OpenTimestamps)**
+
+1. **Digital fingerprint**: Hash the file (SHA-256) in the browser to reduce server load
+2. **Your signature**: Sign that hash with your private key
+3. **Bitcoin timestamp**: Anchor the event on Bitcoin using OpenTimestamps (OTS)
+4. **Ownership log**: Store a single JSON manifest with the file's fingerprint and an append-only list of signed events (mint, transfers), each with its own OTS proof
+
+### File Layout
+
+For each verified file, Node Drive maintains two files:
+
+- `artifact.bin` - The original file
+- `artifact.json` - The provenance manifest containing complete history and embedded OTS proofs
+
+## Digital Provenance
+
+### Data Model
+
+**Manifest** (`provenance.manifest/v1`)
+- `artifact`: file name, size, sha256_hex
+- `events[]`: ordered, append-only list of events
+
+**Event** (`provenance.event/v1`)
+- `index`: Sequential number (0, 1, 2, ...)
+- `action`: "mint" | "transfer"
+- `artifact_sha256_hex`: Must match manifest.artifact.sha256_hex
+- `prev_event_hash_hex`: null for first event, otherwise prior event's hash
+- `actors`: Cryptographic keys involved (creator/prev_owner/new_owner)
+- `issued_at`: ISO-8601 timestamp
+- `event_hash_hex`: SHA-256 of canonical event (excludes signatures, ots_proof_b64, event_hash_hex)
+- `signatures`: Detached signatures over event_hash_hex
+- `ots_proof_b64`: Embedded OpenTimestamps proof
+
+### Verification Flow
+
+1. Re-hash file → must equal `artifact.sha256_hex`
+2. For each event:
+   - Recompute `event_hash_hex` from canonical event
+   - Verify `prev_event_hash_hex` links correctly
+   - Verify all listed signatures over `event_hash_hex`
+   - Verify `ots_proof_b64` → Bitcoin block/time
+3. Current owner = last valid event's actor (e.g., `new_owner_pubkey_hex`)
+
+### Scalability
+
+- **OTS batching**: Millions → billions of events in one Bitcoin transaction
+- **Proof size**: Small (KB), logarithmic growth
 
 ## Features
 
-- Serve static files
-- Download folder as zip file
-- Upload files and folders (Drag & Drop)
-- Create/Edit/Search files
+All original dufs features, plus:
+
+- **Digital provenance tracking** with Bitcoin timestamping
+- **Cryptographic proof** of file integrity and ownership
+- **Content-addressed storage** using file hashes
+- **Visual verification badges** showing timestamp and integrity status
+- **User-friendly hash representation** (e.g., `qw50 •••`)
+- **Dual-mode display**: Simple view for users, detailed cryptographic view for verification
+- Static file serving with drag-and-drop upload
+- Download folders as zip
 - Resumable/partial uploads/downloads
-- Access control
-- Support https
-- Support webdav
-- Easy to use with curl
+- Access control and authentication
+- HTTPS and WebDAV support
+- Search and edit capabilities
+
+## UI/UX Enhancements
+
+Node Drive provides an intuitive interface for viewing provenance:
+
+**User-Friendly View:**
+```
+✅ File not altered: qw50 •••
+✅ Filed verified by me
+✅ Verified on Bitcoin on 9/25/2025 1:00p
+```
+
+**Cryptographic Details View:**
+- SHA-256 hash (full): `qw50meuwuvkwfem96lxxss9s4nzd8j4z7wp`
+- Ownership public key: `3s3fkwfem96lxxss9s4nzd8j4z7wp`
+- OpenTimestamps proof anchored in Bitcoin block #850321
+
+## File Sharing
+
+Node Drive uses **IPv6 addresses** for decentralized file sharing with optional domain support:
+
+```
+https://[2001:db8::1]/files/bafybehashhashhashabc123/file1.txt
+https://node.website/files/bafybehashhashhashabc123/file1.txt
+```
+
+The PWA can point to user servers while providing self-healing capabilities if IP addresses change.
 
 ## Install
 
 ### With cargo
 
-```
-cargo install dufs
+```bash
+cargo install node-drive
 ```
 
 ### With docker
 
-```
-docker run -v `pwd`:/data -p 5000:5000 --rm sigoden/dufs /data -A
-```
-
-### With [Homebrew](https://brew.sh)
-
-```
-brew install dufs
+```bash
+docker run -v `pwd`:/data -p 5000:5000 --rm node-drive /data -A
 ```
 
-### Binaries on macOS, Linux, Windows
+### Binaries
 
-Download from [Github Releases](https://github.com/sigoden/dufs/releases), unzip and add dufs to your $PATH.
+Download from [Github Releases](https://github.com/your-repo/node-drive/releases), unzip and add to your $PATH.
 
-## CLI
+## Quick Start
 
-```
-Dufs is a distinctive utility file server - https://github.com/sigoden/dufs
+Serve current directory with all features enabled:
 
-Usage: dufs [OPTIONS] [serve-path]
-
-Arguments:
-  [serve-path]  Specific path to serve [default: .]
-
-Options:
-  -c, --config <file>        Specify configuration file
-  -b, --bind <addrs>         Specify bind address or unix socket
-  -p, --port <port>          Specify port to listen on [default: 5000]
-      --path-prefix <path>   Specify a path prefix
-      --hidden <value>       Hide paths from directory listings, e.g. tmp,*.log,*.lock
-  -a, --auth <rules>         Add auth roles, e.g. user:pass@/dir1:rw,/dir2
-      --allow-upload         Allow upload files/folders
-      --allow-delete         Allow delete files/folders
-      --allow-search         Allow search files/folders
-      --allow-symlink        Allow symlink to files/folders outside root directory
-      --allow-archive        Allow download folders as archive file
-      --enable-cors          Enable CORS, sets `Access-Control-Allow-Origin: *`
-      --render-index         Serve index.html when requesting a directory, returns 404 if not found index.html
-      --render-try-index     Serve index.html when requesting a directory, returns directory listing if not found index.html
-      --render-spa           Serve SPA(Single Page Application)
-      --assets <path>        Set the path to the assets directory for overriding the built-in assets
-      --log-format <format>  Customize http log format
-      --log-file <file>      Specify the file to save logs to, other than stdout/stderr
-      --compress <level>     Set zip compress level [default: low] [possible values: none, low, medium, high]
-      --completions <shell>  Print shell completion script for <shell> [possible values: bash, elvish, fish, powershell, zsh]
-      --tls-cert <path>      Path to an SSL/TLS certificate to serve with HTTPS
-      --tls-key <path>       Path to the SSL/TLS certificate's private key
-  -h, --help                 Print help
-  -V, --version              Print version
+```bash
+node-drive -A
 ```
 
-## Examples
+Serve with provenance tracking:
 
-Serve current working directory in read-only mode
-
-```
-dufs
+```bash
+node-drive --enable-provenance
 ```
 
-Allow all operations like upload/delete/search/create/edit...
+Use HTTPS for secure connections:
 
-```
-dufs -A
-```
-
-Only allow upload operation
-
-```
-dufs --allow-upload
-```
-
-Serve a specific directory
-
-```
-dufs Downloads
-```
-
-Serve a single file
-
-```
-dufs linux-distro.iso
-```
-
-Serve a single-page application like react/vue
-
-```
-dufs --render-spa
-```
-
-Serve a static website with index.html
-
-```
-dufs --render-index
-```
-
-Require username/password
-
-```
-dufs -a admin:123@/:rw
-```
-
-Listen on specific host:ip 
-
-```
-dufs -b 127.0.0.1 -p 80
-```
-
-Listen on unix socket
-```
-dufs -b /tmp/dufs.socket
-```
-
-Use https
-
-```
-dufs --tls-cert my.crt --tls-key my.key
+```bash
+node-drive --tls-cert my.crt --tls-key my.key
 ```
 
 ## API
 
-Upload a file
+All dufs API endpoints are supported, plus provenance-specific endpoints:
+
+### Upload with Provenance
 
 ```sh
-curl -T path-to-file http://127.0.0.1:5000/new-path/path-to-file
+curl -T file.pdf http://127.0.0.1:5000/file.pdf?provenance=true
 ```
 
-Download a file
-```sh
-curl http://127.0.0.1:5000/path-to-file           # download the file
-curl http://127.0.0.1:5000/path-to-file?hash      # retrieve the sha256 hash of the file
-```
-
-Download a folder as zip file
+### Verify File Integrity
 
 ```sh
-curl -o path-to-folder.zip http://127.0.0.1:5000/path-to-folder?zip
+curl http://127.0.0.1:5000/file.pdf?verify
 ```
 
-Delete a file/folder
+### Get Provenance Manifest
 
 ```sh
-curl -X DELETE http://127.0.0.1:5000/path-to-file-or-folder
+curl http://127.0.0.1:5000/file.pdf.json
 ```
 
-Create a directory
+## Technical Implementation
 
-```sh
-curl -X MKCOL http://127.0.0.1:5000/path-to-folder
-```
+Node Drive is built using:
 
-Move the file/folder to the new path
+- **Rust** (via dufs fork) for high-performance file serving
+- **OpenTimestamps** for Bitcoin blockchain anchoring
+- **SHA-256** hashing for content addressing
+- **ECDSA** signatures for ownership proof
+- **JSON** manifests for provenance storage
 
-```sh
-curl -X MOVE http://127.0.0.1:5000/path -H "Destination: http://127.0.0.1:5000/new-path"
-```
+When uploading files:
+1. File identifier is created from content hash (computed in browser)
+2. File becomes permanent and verifiable on the network
+3. OpenTimestamps proof anchors the upload time to Bitcoin blockchain
+4. Provenance manifest tracks all subsequent events
 
-List/search directory contents
-
-```sh
-curl http://127.0.0.1:5000?q=Dockerfile           # search for files, similar to `find -name Dockerfile`
-curl http://127.0.0.1:5000?simple                 # output names only, similar to `ls -1`
-curl http://127.0.0.1:5000?json                   # output paths in json format
-```
-
-With authorization (Both basic or digest auth works)
-
-```sh
-curl http://127.0.0.1:5000/file --user user:pass                 # basic auth
-curl http://127.0.0.1:5000/file --user user:pass --digest        # digest auth
-```
-
-Resumable downloads
-
-```sh
-curl -C- -o file http://127.0.0.1:5000/file
-```
-
-Resumable uploads
-
-```sh
-upload_offset=$(curl -I -s http://127.0.0.1:5000/file | tr -d '\r' | sed -n 's/content-length: //p')
-dd skip=$upload_offset if=file status=none ibs=1 | \
-  curl -X PATCH -H "X-Update-Range: append" --data-binary @- http://127.0.0.1:5000/file
-```
-
-Health checks
-
-```sh
-curl http://127.0.0.1:5000/__dufs__/health
-```
-
-<details>
-<summary><h2>Advanced Topics</h2></summary>
-
-### Access Control
-
-Dufs supports account based access control. You can control who can do what on which path with `--auth`/`-a`.
+## Architecture
 
 ```
-dufs -a admin:admin@/:rw -a guest:guest@/
-dufs -a user:pass@/:rw,/dir1 -a @/
+Browser (hash file) → Node Drive Server → OpenTimestamps
+                            ↓
+                     Bitcoin Blockchain
+                            ↓
+                    Permanent Proof
 ```
-
-1. Use `@` to separate the account and paths. No account means anonymous user.
-2. Use `:` to separate the username and password of the account.
-3. Use `,` to separate paths.
-4. Use path suffix `:rw`/`:ro` set permissions: `read-write`/`read-only`. `:ro` can be omitted.
-
-- `-a admin:admin@/:rw`: `admin` has complete permissions for all paths.
-- `-a guest:guest@/`: `guest` has read-only permissions for all paths.
-- `-a user:pass@/:rw,/dir1`: `user` has read-write permissions for `/*`, has read-only permissions for `/dir1/*`.
-- `-a @/`: All paths is publicly accessible, everyone can view/download it.
-
-**Auth permissions are restricted by dufs global permissions.** If dufs does not enable upload permissions via `--allow-upload`, then the account will not have upload permissions even if it is granted `read-write`(`:rw`) permissions.
-
-#### Hashed Password
-
-DUFS supports the use of sha-512 hashed password.
-
-Create hashed password:
-
-```sh
-$ openssl passwd -6 123456 # or `mkpasswd -m sha-512 123456`
-$6$tWMB51u6Kb2ui3wd$5gVHP92V9kZcMwQeKTjyTRgySsYJu471Jb1I6iHQ8iZ6s07GgCIO69KcPBRuwPE5tDq05xMAzye0NxVKuJdYs/
-```
-
-Use hashed password:
-
-```sh
-dufs -a 'admin:$6$tWMB51u6Kb2ui3wd$5gVHP92V9kZcMwQeKTjyTRgySsYJu471Jb1I6iHQ8iZ6s07GgCIO69KcPBRuwPE5tDq05xMAzye0NxVKuJdYs/@/:rw'
-```
-> The hashed password contains `$6`, which can expand to a variable in some shells, so you have to use **single quotes** to wrap it.
-
-Two important things for hashed passwords:
-
-1. Dufs only supports sha-512 hashed passwords, so ensure that the password string always starts with `$6$`.
-2. Digest authentication does not function properly with hashed passwords.
-
-
-### Hide Paths
-
-Dufs supports hiding paths from directory listings via option `--hidden <glob>,...`.
-
-```
-dufs --hidden .git,.DS_Store,tmp
-```
-
-> The glob used in --hidden only matches file and directory names, not paths. So `--hidden dir1/file` is invalid.
-
-```sh
-dufs --hidden '.*'                          # hidden dotfiles
-dufs --hidden '*/'                          # hidden all folders
-dufs --hidden '*.log,*.lock'                # hidden by exts
-dufs --hidden '*.log' --hidden '*.lock'
-```
-
-### Log Format
-
-Dufs supports customize http log format with option `--log-format`.
-
-The log format can use following variables.
-
-| variable     | description                                                               |
-| ------------ | ------------------------------------------------------------------------- |
-| $remote_addr | client address                                                            |
-| $remote_user | user name supplied with authentication                                    |
-| $request     | full original request line                                                |
-| $status      | response status                                                           |
-| $http_       | arbitrary request header field. examples: $http_user_agent, $http_referer |
-
-
-The default log format is `'$remote_addr "$request" $status'`.
-```
-2022-08-06T06:59:31+08:00 INFO - 127.0.0.1 "GET /" 200
-```
-
-Disable http log
-```
-dufs --log-format=''
-```
-
-Log user-agent
-```
-dufs --log-format '$remote_addr "$request" $status $http_user_agent'
-```
-```
-2022-08-06T06:53:55+08:00 INFO - 127.0.0.1 "GET /" 200 Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/104.0.0.0 Safari/537.36
-```
-
-Log remote-user
-```
-dufs --log-format '$remote_addr $remote_user "$request" $status' -a /@admin:admin -a /folder1@user1:pass1
-```
-```
-2022-08-06T07:04:37+08:00 INFO - 127.0.0.1 admin "GET /" 200
-```
-
-## Environment variables
-
-All options can be set using environment variables prefixed with `DUFS_`.
-
-```
-[serve-path]                DUFS_SERVE_PATH="."
-    --config <file>         DUFS_CONFIG=config.yaml
--b, --bind <addrs>          DUFS_BIND=0.0.0.0
--p, --port <port>           DUFS_PORT=5000
-    --path-prefix <path>    DUFS_PATH_PREFIX=/dufs
-    --hidden <value>        DUFS_HIDDEN=tmp,*.log,*.lock
--a, --auth <rules>          DUFS_AUTH="admin:admin@/:rw|@/" 
-    --allow-upload          DUFS_ALLOW_UPLOAD=true
-    --allow-delete          DUFS_ALLOW_DELETE=true
-    --allow-search          DUFS_ALLOW_SEARCH=true
-    --allow-symlink         DUFS_ALLOW_SYMLINK=true
-    --allow-archive         DUFS_ALLOW_ARCHIVE=true
-    --enable-cors           DUFS_ENABLE_CORS=true
-    --render-index          DUFS_RENDER_INDEX=true
-    --render-try-index      DUFS_RENDER_TRY_INDEX=true
-    --render-spa            DUFS_RENDER_SPA=true
-    --assets <path>         DUFS_ASSETS=./assets
-    --log-format <format>   DUFS_LOG_FORMAT=""
-    --log-file <file>       DUFS_LOG_FILE=./dufs.log
-    --compress <compress>   DUFS_COMPRESS=low
-    --tls-cert <path>       DUFS_TLS_CERT=cert.pem
-    --tls-key <path>        DUFS_TLS_KEY=key.pem
-```
-
-## Configuration File
-
-You can specify and use the configuration file by selecting the option `--config <path-to-config.yaml>`.
-
-The following are the configuration items:
-
-```yaml
-serve-path: '.'
-bind: 0.0.0.0
-port: 5000
-path-prefix: /dufs
-hidden:
-  - tmp
-  - '*.log'
-  - '*.lock'
-auth:
-  - admin:admin@/:rw
-  - user:pass@/src:rw,/share
-  - '@/'  # According to the YAML spec, quoting is required.
-allow-upload: true
-allow-delete: true
-allow-search: true
-allow-symlink: true
-allow-archive: true
-enable-cors: true
-render-index: true
-render-try-index: true
-render-spa: true
-assets: ./assets/
-log-format: '$remote_addr "$request" $status $http_user_agent'
-log-file: ./dufs.log
-compress: low
-tls-cert: tests/data/cert.pem
-tls-key: tests/data/key_pkcs1.pem
-```
-
-### Customize UI
-
-Dufs allows users to customize the UI with your own assets.
-
-```
-dufs --assets my-assets-dir/
-```
-
-> If you only need to make slight adjustments to the current UI, you copy dufs's [assets](https://github.com/sigoden/dufs/tree/main/assets) directory and modify it accordingly. The current UI doesn't use any frameworks, just plain HTML/JS/CSS. As long as you have some basic knowledge of web development, it shouldn't be difficult to modify.
-
-Your assets folder must contains a `index.html` file.
-
-`index.html` can use the following placeholder variables to retrieve internal data.
-
-- `__INDEX_DATA__`: directory listing data
-- `__ASSETS_PREFIX__`: assets url prefix
-
-</details>
 
 ## License
 
-Copyright (c) 2022-2024 dufs-developers.
+Copyright (c) 2025 Node Drive contributors.
+Based on [dufs](https://github.com/sigoden/dufs) © 2022-2024 dufs-developers.
 
-dufs is made available under the terms of either the MIT License or the Apache License 2.0, at your option.
+Node Drive is made available under the terms of either the MIT License or the Apache License 2.0, at your option.
 
 See the LICENSE-APACHE and LICENSE-MIT files for license details.
+
+---
+
+**Built for a world where digital ownership matters.**

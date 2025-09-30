@@ -1304,7 +1304,7 @@ dependencies = [
 
 [[package]]
 name = "node-drive"
-version = "1.1.0"
+version = "1.1.2"
 dependencies = [
  "alphanumeric-sort",
  "anyhow",

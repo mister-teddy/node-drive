@@ -172,7 +172,7 @@ jobs:
             sudo -n systemctl stop node-drive || true
 
             # Download and run install script
-            curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/main/install.sh | sudo -n bash
+            curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/main/install.sh | bash
 
             # Start the service
             sudo -n systemctl start node-drive
