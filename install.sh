@@ -222,11 +222,9 @@ main() {
     sudo cp "$binary_path" "$INSTALL_DIR/$BINARY_NAME"
     sudo chmod +x "$INSTALL_DIR/$BINARY_NAME"
 
-    # Install assets directory if it exists in the archive
-    if [[ -d "assets" ]]; then
-        log_info "Installing assets to $INSTALL_DIR..."
-        sudo cp -r assets "$INSTALL_DIR/"
-    fi
+    # Install assets directory
+    log_info "Installing assets to $INSTALL_DIR..."
+    sudo cp -r assets "$INSTALL_DIR/"
 
     # Ensure node-drive directory exists first
     log_info "Ensuring node-drive directory exists..."
