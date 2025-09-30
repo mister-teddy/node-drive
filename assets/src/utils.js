@@ -340,20 +340,11 @@ export function hexToBytes(/** @type {string} */ hex) {
 /**
  * Create user-friendly hash representation
  * @param {string} hash - Full SHA256 hash
- * @returns {string} Short hash format like "qw50 lll"
+ * @returns {string} Short hash format like "abcdef"
  */
 export function formatHashShort(hash) {
-  if (!hash || hash.length < 8) return "----";
-
-  // Take first 4 chars and convert to base36 for readability
-  const prefix = hash.substring(0, 4);
-  const suffix = hash.substring(4, 8);
-
-  // Convert hex to more readable format
-  const shortPrefix = parseInt(prefix, 16).toString(36).substring(0, 4);
-  const shortSuffix = parseInt(suffix, 16).toString(36).substring(0, 3);
-
-  return `${shortPrefix} ${shortSuffix}`;
+  if (!hash || hash.length < 6) return "------";
+  return hash.substring(0, 6);
 }
 
 /**
@@ -408,4 +399,32 @@ export function useStore(selector) {
   }), []);
 
   return data;
+}
+
+/**
+ * Convert a string to an array of byte values
+ * @param {string} str - The input string
+ * @returns {number[]} Array of byte values
+ */
+export function string2Bin(str) {
+  var result = [];
+  for (var i = 0; i < str.length; i++) {
+    result.push(str.charCodeAt(i));
+  }
+  return result;
+}
+
+/**
+ * Convert a base64 string to a Uint8Array
+ * @param {string} base64 - The base64 encoded string
+ * @returns {Uint8Array} The decoded byte array
+ */
+export function base64ToUint8Array(base64) {
+  const binary = atob(base64); // decode base64 to binary string
+  const len = binary.length;
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
 }

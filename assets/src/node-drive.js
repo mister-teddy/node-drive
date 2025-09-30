@@ -1,7 +1,13 @@
 // @ts-check
 import { makeAutoObservable } from "./esm-imports.js";
-import { calculateSHA256, newUrl, formatFileSize, formatPercent, formatDuration, hexToBytes, download } from "./utils.js";
+import { calculateSHA256, newUrl, formatFileSize, formatPercent, formatDuration, hexToBytes, download, string2Bin, base64ToUint8Array } from "./utils.js";
 
+// @ts-ignore
+const { OpenTimestamps } = window;
+if (!OpenTimestamps) {
+    console.warn("OpenTimestamps library not loaded");
+}
+const op = new OpenTimestamps.Ops.OpSHA256();
 
 /**
  * Create OpenTimestamps proof for a file hash
@@ -11,15 +17,6 @@ import { calculateSHA256, newUrl, formatFileSize, formatPercent, formatDuration,
  */
 export async function stamp(filename, hash) {
     try {
-        // @ts-ignore
-        const { OpenTimestamps } = window;
-
-        if (!OpenTimestamps) {
-            console.warn("OpenTimestamps library not loaded");
-            return null;
-        }
-
-        const op = new OpenTimestamps.Ops.OpSHA256();
         const detached = OpenTimestamps.DetachedTimestampFile.fromHash(op, hexToBytes(hash));
 
         // Create the timestamp
@@ -46,15 +43,13 @@ export async function stamp(filename, hash) {
 
 /**
  * Check if OTS proof is still pending (placeholder)
- * @param {{ detachedOts: any, detached: any }} param0
- * @returns {Promise<'pending-attestation' | 'cannot-verify' | 'unknown-attestation-type' | Object>}
+ * @param {Object} params
+ * @param {string} params.otsProofBase64 - Base64-encoded OTS proof
+ * @param {string} params.artifactSha256 - SHA256 hash of the artifact
+ * @returns {Promise<'pending-attestation' | 'cannot-verify' | 'unknown-attestation-type' | { bitcoin: { timestamp: number, height: number } }>}
  */
-export async function getStampStatus({ detachedOts, detached }) {
+export async function getStampStatus({ otsProofBase64, artifactSha256 }) {
     try {
-
-        // @ts-ignore
-        const { OpenTimestamps } = window;
-
         // OpenTimestamps upgrade command
         // OpenTimestamps.upgrade(detachedOts).then( (changed)=>{
         //     const bytes = detachedOts.serializeToBytes();
@@ -70,6 +65,9 @@ export async function getStampStatus({ detachedOts, detached }) {
         // 	}
         // 	return OpenTimestamps.verify(detachedOts,detached)
 
+        const detachedOts = OpenTimestamps.DetachedTimestampFile.deserialize(base64ToUint8Array(otsProofBase64));
+        const detached = OpenTimestamps.DetachedTimestampFile.fromHash(op, hexToBytes(artifactSha256));
+
         const results = await OpenTimestamps.verify(detachedOts, detached)
         if (Object.keys(results).length == 0) {
             // no attestation returned
@@ -80,11 +78,11 @@ export async function getStampStatus({ detachedOts, detached }) {
                         return 'unknown-attestation-type';
                     }
                 });
-            } else {
-                return 'pending-attestation';
             }
+            return 'pending-attestation';
+        } else {
+            return results;
         }
-        return results;
     } catch (error) {
         return 'cannot-verify';
     }
