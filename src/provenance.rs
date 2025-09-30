@@ -1,5 +1,5 @@
 use anyhow::Result;
-use rusqlite::{Connection, params};
+use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -65,6 +65,20 @@ pub struct Signatures {
     pub prev_owner_sig_hex: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub new_owner_sig_hex: Option<String>,
+}
+
+/// Arguments for inserting a provenance event
+pub struct InsertEventArgs<'a> {
+    pub artifact_id: i64,
+    pub index: u32,
+    pub action: &'a EventAction,
+    pub artifact_sha256_hex: &'a str,
+    pub prev_event_hash_hex: Option<&'a str>,
+    pub issued_at: &'a str,
+    pub event_hash_hex: &'a str,
+    pub ots_proof_b64: &'a str,
+    pub actors: &'a Actors,
+    pub signatures: &'a Signatures,
 }
 
 /// Thread-safe database connection wrapper
@@ -154,7 +168,12 @@ impl ProvenanceDb {
     }
 
     /// Insert or update artifact
-    pub fn upsert_artifact(&self, file_name: &str, sha256_hex: &str, size_bytes: u64) -> Result<i64> {
+    pub fn upsert_artifact(
+        &self,
+        file_name: &str,
+        sha256_hex: &str,
+        size_bytes: u64,
+    ) -> Result<i64> {
         let conn = self.conn.lock().unwrap();
         let now = chrono::Utc::now().to_rfc3339();
 
@@ -176,7 +195,7 @@ impl ProvenanceDb {
         let conn = self.conn.lock().unwrap();
 
         let mut stmt = conn.prepare(
-            "SELECT id, file_name, size_bytes, sha256_hex FROM artifacts WHERE sha256_hex = ?1"
+            "SELECT id, file_name, size_bytes, sha256_hex FROM artifacts WHERE sha256_hex = ?1",
         )?;
 
         let mut rows = stmt.query(params![sha256_hex])?;
@@ -195,23 +214,11 @@ impl ProvenanceDb {
     }
 
     /// Insert a new provenance event
-    pub fn insert_event(
-        &self,
-        artifact_id: i64,
-        index: u32,
-        action: &EventAction,
-        artifact_sha256_hex: &str,
-        prev_event_hash_hex: Option<&str>,
-        issued_at: &str,
-        event_hash_hex: &str,
-        ots_proof_b64: &str,
-        actors: &Actors,
-        signatures: &Signatures,
-    ) -> Result<i64> {
+    pub fn insert_event(&self, args: InsertEventArgs) -> Result<i64> {
         let mut conn = self.conn.lock().unwrap();
         let tx = conn.transaction()?;
 
-        let action_str = match action {
+        let action_str = match args.action {
             EventAction::Mint => "mint",
             EventAction::Transfer => "transfer",
         };
@@ -220,33 +227,33 @@ impl ProvenanceDb {
             "INSERT INTO events (artifact_id, index_num, action, artifact_sha256_hex, prev_event_hash_hex, issued_at, event_hash_hex, ots_proof_b64)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             params![
-                artifact_id,
-                index,
+                args.artifact_id,
+                args.index,
                 action_str,
-                artifact_sha256_hex,
-                prev_event_hash_hex,
-                issued_at,
-                event_hash_hex,
-                ots_proof_b64
+                args.artifact_sha256_hex,
+                args.prev_event_hash_hex,
+                args.issued_at,
+                args.event_hash_hex,
+                args.ots_proof_b64
             ],
         )?;
 
         let event_id = tx.last_insert_rowid();
 
         // Insert actors
-        if let Some(ref creator) = actors.creator_pubkey_hex {
+        if let Some(ref creator) = args.actors.creator_pubkey_hex {
             tx.execute(
                 "INSERT INTO event_actors (event_id, role, pubkey_hex) VALUES (?1, 'creator', ?2)",
                 params![event_id, creator],
             )?;
         }
-        if let Some(ref prev_owner) = actors.prev_owner_pubkey_hex {
+        if let Some(ref prev_owner) = args.actors.prev_owner_pubkey_hex {
             tx.execute(
                 "INSERT INTO event_actors (event_id, role, pubkey_hex) VALUES (?1, 'prev_owner', ?2)",
                 params![event_id, prev_owner],
             )?;
         }
-        if let Some(ref new_owner) = actors.new_owner_pubkey_hex {
+        if let Some(ref new_owner) = args.actors.new_owner_pubkey_hex {
             tx.execute(
                 "INSERT INTO event_actors (event_id, role, pubkey_hex) VALUES (?1, 'new_owner', ?2)",
                 params![event_id, new_owner],
@@ -254,19 +261,19 @@ impl ProvenanceDb {
         }
 
         // Insert signatures
-        if let Some(ref creator_sig) = signatures.creator_sig_hex {
+        if let Some(ref creator_sig) = args.signatures.creator_sig_hex {
             tx.execute(
                 "INSERT INTO event_signatures (event_id, role, signature_hex) VALUES (?1, 'creator', ?2)",
                 params![event_id, creator_sig],
             )?;
         }
-        if let Some(ref prev_owner_sig) = signatures.prev_owner_sig_hex {
+        if let Some(ref prev_owner_sig) = args.signatures.prev_owner_sig_hex {
             tx.execute(
                 "INSERT INTO event_signatures (event_id, role, signature_hex) VALUES (?1, 'prev_owner', ?2)",
                 params![event_id, prev_owner_sig],
             )?;
         }
-        if let Some(ref new_owner_sig) = signatures.new_owner_sig_hex {
+        if let Some(ref new_owner_sig) = args.signatures.new_owner_sig_hex {
             tx.execute(
                 "INSERT INTO event_signatures (event_id, role, signature_hex) VALUES (?1, 'new_owner', ?2)",
                 params![event_id, new_owner_sig],
@@ -302,9 +309,8 @@ impl ProvenanceDb {
             let ots_proof_b64: String = row.get(7)?;
 
             // Get actors
-            let mut actors_stmt = conn.prepare(
-                "SELECT role, pubkey_hex FROM event_actors WHERE event_id = ?1"
-            )?;
+            let mut actors_stmt =
+                conn.prepare("SELECT role, pubkey_hex FROM event_actors WHERE event_id = ?1")?;
             let mut actors_rows = actors_stmt.query(params![event_id])?;
             let mut actors = Actors {
                 creator_pubkey_hex: None,
@@ -324,9 +330,8 @@ impl ProvenanceDb {
             }
 
             // Get signatures
-            let mut sigs_stmt = conn.prepare(
-                "SELECT role, signature_hex FROM event_signatures WHERE event_id = ?1"
-            )?;
+            let mut sigs_stmt = conn
+                .prepare("SELECT role, signature_hex FROM event_signatures WHERE event_id = ?1")?;
             let mut sigs_rows = sigs_stmt.query(params![event_id])?;
             let mut signatures = Signatures {
                 creator_sig_hex: None,
@@ -388,9 +393,7 @@ impl ProvenanceDb {
     pub fn get_next_event_index(&self, artifact_id: i64) -> Result<u32> {
         let conn = self.conn.lock().unwrap();
 
-        let mut stmt = conn.prepare(
-            "SELECT MAX(index_num) FROM events WHERE artifact_id = ?1"
-        )?;
+        let mut stmt = conn.prepare("SELECT MAX(index_num) FROM events WHERE artifact_id = ?1")?;
 
         let max_index: Option<u32> = stmt.query_row(params![artifact_id], |row| row.get(0))?;
 
@@ -413,6 +416,23 @@ impl ProvenanceDb {
         } else {
             Ok(None)
         }
+    }
+
+    /// Update the OTS proof for a specific event
+    pub fn update_ots_proof(
+        &self,
+        artifact_id: i64,
+        event_index: u32,
+        ots_proof_b64: &str,
+    ) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+
+        conn.execute(
+            "UPDATE events SET ots_proof_b64 = ?1 WHERE artifact_id = ?2 AND index_num = ?3",
+            params![ots_proof_b64, artifact_id, event_index],
+        )?;
+
+        Ok(())
     }
 }
 
@@ -465,11 +485,7 @@ mod tests {
         let db = ProvenanceDb::new(":memory:")?;
 
         // Test artifact insertion
-        let artifact_id = db.upsert_artifact(
-            "test.txt",
-            "abc123",
-            1024,
-        )?;
+        let artifact_id = db.upsert_artifact("test.txt", "abc123", 1024)?;
 
         assert!(artifact_id > 0);
 
@@ -494,18 +510,20 @@ mod tests {
             new_owner_sig_hex: None,
         };
 
-        let event_id = db.insert_event(
+        let args = InsertEventArgs {
             artifact_id,
-            0,
-            &EventAction::Mint,
-            "abc123",
-            None,
-            "2025-09-25T14:12:34Z",
-            "event_hash_1",
-            "ots_proof_base64",
-            &actors,
-            &signatures,
-        )?;
+            index: 0,
+            action: &EventAction::Mint,
+            artifact_sha256_hex: "abc123",
+            prev_event_hash_hex: None,
+            issued_at: "2025-09-25T14:12:34Z",
+            event_hash_hex: "event_hash_1",
+            ots_proof_b64: "ots_proof_base64",
+            actors: &actors,
+            signatures: &signatures,
+        };
+
+        let event_id = db.insert_event(args)?;
 
         assert!(event_id > 0);
 
@@ -530,18 +548,20 @@ mod tests {
             new_owner_sig_hex: None,
         };
 
-        db.insert_event(
+        let args = InsertEventArgs {
             artifact_id,
-            0,
-            &EventAction::Mint,
-            "abc123",
-            None,
-            "2025-09-25T14:12:34Z",
-            "event_hash_1",
-            "ots_proof_base64",
-            &actors,
-            &signatures,
-        )?;
+            index: 0,
+            action: &EventAction::Mint,
+            artifact_sha256_hex: "abc123",
+            prev_event_hash_hex: None,
+            issued_at: "2025-09-25T14:12:34Z",
+            event_hash_hex: "event_hash_1",
+            ots_proof_b64: "ots_proof_base64",
+            actors: &actors,
+            signatures: &signatures,
+        };
+
+        db.insert_event(args)?;
 
         let manifest = db.get_manifest("abc123")?.unwrap();
 

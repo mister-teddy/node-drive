@@ -315,46 +315,6 @@ export function decodeBase64(base64String) {
 }
 
 /**
- * Create OpenTimestamps proof for a file hash
- * @param {string} filename - Name of the file
- * @param {string} hash - SHA256 hash of the file
- * @returns {Promise<{filename: string, timestampBytes: Uint8Array} | null>}
- */
-export async function stamp(filename, hash) {
-  try {
-    // @ts-ignore
-    const { OpenTimestamps } = window;
-
-    if (!OpenTimestamps) {
-      console.warn("OpenTimestamps library not loaded");
-      return null;
-    }
-
-    const op = new OpenTimestamps.Ops.OpSHA256();
-    const detached = OpenTimestamps.DetachedTimestampFile.fromHash(op, hexToBytes(hash));
-
-    // Create the timestamp
-    await OpenTimestamps.stamp(detached);
-
-    // Serialize the timestamp
-    const ctx = new OpenTimestamps.Context.StreamSerialization();
-    detached.serialize(ctx);
-    const timestampBytes = ctx.getOutput();
-
-    const extractedFileExtension = filename.match(/\.[0-9a-z]+$/i);
-    const isOtsExt = extractedFileExtension !== null && extractedFileExtension.length > 0 && extractedFileExtension[0] === ".ots";
-    const otsFilename = filename + (isOtsExt ? '' : '.ots')
-
-    download(otsFilename, timestampBytes);
-
-    return { filename, timestampBytes };
-  } catch (error) {
-    console.error("OpenTimestamps stamping error:", error);
-    return null;
-  }
-}
-
-/**
  * Trigger download of a file with given filename and byte content
  * @param {string} filename - Name of the file to download
  * @param {BlobPart} bytes - Byte content of the file

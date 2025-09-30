@@ -218,6 +218,20 @@ main() {
     sudo cp "$binary_path" "$INSTALL_DIR/$BINARY_NAME"
     sudo chmod +x "$INSTALL_DIR/$BINARY_NAME"
 
+    # Install assets directory if it exists in the archive
+    if [[ -d "assets" ]]; then
+        log_info "Installing assets to $INSTALL_DIR..."
+        sudo cp -r assets "$INSTALL_DIR/"
+    fi
+
+    # Ensure node-drive directory exists first
+    log_info "Ensuring node-drive directory exists..."
+    local node_drive_dir="$HOME/node-drive"
+    if [[ ! -d "$node_drive_dir" ]]; then
+        mkdir -p "$node_drive_dir"
+        log_info "Created $node_drive_dir directory"
+    fi
+
     # Create systemd service
     log_info "Creating systemd service..."
     sudo tee /etc/systemd/system/${SERVICE_NAME}.service > /dev/null <<EOF
@@ -227,7 +241,9 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=$INSTALL_DIR/$BINARY_NAME --bind 0.0.0.0 --port 80 $HOME/node-drive
+User=$USER
+WorkingDirectory=$node_drive_dir
+ExecStart=$INSTALL_DIR/$BINARY_NAME --bind 0.0.0.0 --port 80 $node_drive_dir
 Restart=always
 RestartSec=10
 StandardOutput=journal
@@ -237,7 +253,7 @@ StandardError=journal
 NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=no
-ReadWritePaths=$HOME/node-drive
+ReadWritePaths=$node_drive_dir
 PrivateTmp=yes
 AmbientCapabilities=CAP_NET_BIND_SERVICE
 CapabilityBoundingSet=CAP_NET_BIND_SERVICE
@@ -248,13 +264,6 @@ Environment=RUST_LOG=info
 [Install]
 WantedBy=multi-user.target
 EOF
-
-    # Ensure node-drive directory exists
-    log_info "Ensuring node-drive directory exists..."
-    if [[ ! -d "$HOME/node-drive" ]]; then
-        mkdir -p "$HOME/node-drive"
-        log_info "Created $HOME/node-drive directory"
-    fi
 
     # Reload systemd and enable service
     sudo systemctl daemon-reload

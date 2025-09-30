@@ -3,7 +3,7 @@
 use crate::auth::{www_authenticate, AccessPaths, AccessPerm};
 use crate::http_utils::{body_full, IncomingStream, LengthLimitedStream};
 use crate::noscript::{detect_noscript, generate_noscript_html};
-use crate::provenance::ProvenanceDb;
+use crate::provenance::{InsertEventArgs, ProvenanceDb};
 use crate::utils::{
     decode_uri, encode_uri, get_file_mtime_and_mode, get_file_name, glob, parse_range,
     try_get_file_name,
@@ -70,7 +70,7 @@ pub struct Server {
     html: Cow<'static, str>,
     single_file_req_paths: Vec<String>,
     running: Arc<AtomicBool>,
-    provenance_db: Option<ProvenanceDb>,
+    provenance_db: ProvenanceDb,
 }
 
 impl Server {
@@ -91,12 +91,13 @@ impl Server {
         };
         let html = Cow::Borrowed(INDEX_HTML);
 
-        // Initialize provenance database if path is provided
-        let provenance_db = if let Some(ref db_path) = args.provenance_db {
-            Some(ProvenanceDb::new(db_path)?)
-        } else {
-            None
-        };
+        // Initialize provenance database - use provided path or default to "provenance.db"
+        let db_path = args
+            .provenance_db
+            .as_ref()
+            .map(|p| p.to_owned())
+            .unwrap_or_else(|| "provenance.db".into());
+        let provenance_db = ProvenanceDb::new(&db_path)?;
 
         Ok(Self {
             args,
@@ -365,7 +366,10 @@ impl Server {
                     } else if has_query_flag(&query_params, "hash") {
                         self.handle_hash_file(path, head_only, &mut res).await?;
                     } else if query_params.get("manifest") == Some(&"json".to_string()) {
-                        self.handle_provenance_manifest(path, head_only, &mut res).await?;
+                        self.handle_provenance_manifest(path, head_only, &mut res)
+                            .await?;
+                    } else if has_query_flag(&query_params, "ots") {
+                        self.handle_ots_download(path, head_only, &mut res).await?;
                     } else {
                         self.handle_send_file(path, headers, head_only, &mut res)
                             .await?;
@@ -396,6 +400,18 @@ impl Server {
                     status_forbid(&mut res);
                 } else {
                     self.handle_upload(path, None, size, req, &mut res).await?;
+                }
+            }
+            Method::POST => {
+                // Check if this is an OTS upload request
+                if has_query_flag(&query_params, "ots") {
+                    if is_miss || is_dir {
+                        status_not_found(&mut res);
+                    } else {
+                        self.handle_ots_upload(path, req, &mut res).await?;
+                    }
+                } else {
+                    *res.status_mut() = StatusCode::METHOD_NOT_ALLOWED;
                 }
             }
             Method::PATCH => {
@@ -552,8 +568,8 @@ impl Server {
 
         *res.status_mut() = status;
 
-        // Create provenance mint event if database is enabled and this is a new file
-        if status == StatusCode::CREATED && self.provenance_db.is_some() {
+        // Create provenance mint event if this is a new file
+        if status == StatusCode::CREATED {
             if let Err(e) = self.create_mint_event(path).await {
                 warn!("Failed to create mint event for {:?}: {}", path, e);
             }
@@ -758,7 +774,23 @@ impl Server {
     ) -> Result<bool> {
         if let Some(_name) = req_path.strip_prefix(&self.assets_prefix) {
             // Serve embedded assets
-            let path = PathBuf::from(format!("assets/{}", _name));
+            let asset_file = format!("assets/{}", _name);
+
+            #[cfg(debug_assertions)]
+            let path = {
+                // Development (cargo run/build): Relative to current working directory
+                PathBuf::from(&asset_file)
+            };
+
+            #[cfg(not(debug_assertions))]
+            let path = {
+                // Production (cargo build --release): Relative to binary location
+                std::env::current_exe()
+                    .ok()
+                    .and_then(|exe| exe.parent().map(|p| p.join(&asset_file)))
+                    .unwrap_or_else(|| PathBuf::from(&asset_file))
+            };
+
             if path.exists() {
                 self.handle_send_file(&path, _headers, false, res).await?;
                 return Ok(true);
@@ -999,15 +1031,6 @@ impl Server {
         head_only: bool,
         res: &mut Response,
     ) -> Result<()> {
-        // Check if provenance database is enabled
-        let db = match &self.provenance_db {
-            Some(db) => db,
-            None => {
-                status_not_found(res);
-                return Ok(());
-            }
-        };
-
         // Compute file hash
         let file_data = tokio::fs::read(path).await?;
         let mut hasher = Sha256::new();
@@ -1016,7 +1039,7 @@ impl Server {
         let sha256_hex = hex::encode(hash_bytes);
 
         // Retrieve manifest from database
-        match db.get_manifest(&sha256_hex)? {
+        match self.provenance_db.get_manifest(&sha256_hex)? {
             Some(manifest) => {
                 let json = serde_json::to_string_pretty(&manifest)?;
                 res.headers_mut()
@@ -1033,6 +1056,107 @@ impl Server {
                 Ok(())
             }
         }
+    }
+
+    async fn handle_ots_upload(&self, path: &Path, req: Request, res: &mut Response) -> Result<()> {
+        use base64::{engine::general_purpose::STANDARD, Engine as _};
+
+        // Read the OTS bytes from request body
+        let body_bytes = req
+            .into_body()
+            .collect()
+            .await
+            .map_err(|e| anyhow!("Failed to read request body: {}", e))?
+            .to_bytes();
+
+        // Compute file hash
+        let file_data = tokio::fs::read(path).await?;
+        let mut hasher = Sha256::new();
+        hasher.update(&file_data);
+        let hash_bytes = hasher.finalize();
+        let sha256_hex = hex::encode(hash_bytes);
+
+        // Get artifact from database
+        let (artifact_id, _) = match self.provenance_db.get_artifact(&sha256_hex)? {
+            Some(result) => result,
+            None => {
+                status_not_found(res);
+                return Ok(());
+            }
+        };
+
+        // Get the latest event for this artifact
+        let next_index = self.provenance_db.get_next_event_index(artifact_id)?;
+        if next_index == 0 {
+            status_not_found(res);
+            return Ok(());
+        }
+
+        // Update the OTS proof for the most recent event
+        // We need to update the ots_proof_b64 field
+        let ots_proof_b64 = STANDARD.encode(&body_bytes);
+
+        // Update the database (we need to add an update method)
+        self.provenance_db
+            .update_ots_proof(artifact_id, next_index - 1, &ots_proof_b64)?;
+
+        *res.status_mut() = StatusCode::OK;
+        *res.body_mut() = body_full("OTS proof uploaded successfully");
+        Ok(())
+    }
+
+    async fn handle_ots_download(
+        &self,
+        path: &Path,
+        head_only: bool,
+        res: &mut Response,
+    ) -> Result<()> {
+        use base64::{engine::general_purpose::STANDARD, Engine as _};
+
+        // Compute file hash
+        let file_data = tokio::fs::read(path).await?;
+        let mut hasher = Sha256::new();
+        hasher.update(&file_data);
+        let hash_bytes = hasher.finalize();
+        let sha256_hex = hex::encode(hash_bytes);
+
+        // Get manifest from database
+        let manifest = match self.provenance_db.get_manifest(&sha256_hex)? {
+            Some(m) => m,
+            None => {
+                status_not_found(res);
+                return Ok(());
+            }
+        };
+
+        // Get the latest event's OTS proof
+        if manifest.events.is_empty() {
+            status_not_found(res);
+            return Ok(());
+        }
+
+        let latest_event = &manifest.events[manifest.events.len() - 1];
+        let ots_bytes = STANDARD
+            .decode(&latest_event.ots_proof_b64)
+            .map_err(|e| anyhow!("Failed to decode OTS proof: {}", e))?;
+
+        // Set response headers for download
+        let filename = try_get_file_name(path)?;
+        let ots_filename = format!("{}.ots", filename);
+        res.headers_mut().insert(
+            CONTENT_TYPE,
+            HeaderValue::from_static("application/octet-stream"),
+        );
+        set_content_disposition(res, false, &ots_filename)?;
+        res.headers_mut()
+            .insert(CONTENT_LENGTH, format!("{}", ots_bytes.len()).parse()?);
+
+        if head_only {
+            return Ok(());
+        }
+
+        *res.body_mut() = body_full(ots_bytes);
+        Ok(())
     }
 
     async fn handle_tokengen(
@@ -1482,10 +1606,7 @@ impl Server {
 
     /// Create a mint event for a newly uploaded file
     async fn create_mint_event(&self, path: &Path) -> Result<()> {
-        use crate::provenance::{Actors, EventAction, Signatures, compute_event_hash};
-
-        let db = self.provenance_db.as_ref()
-            .ok_or_else(|| anyhow!("Provenance database not initialized"))?;
+        use crate::provenance::{compute_event_hash, Actors, EventAction, Signatures};
 
         // Read file and compute SHA-256 hash
         let file_data = tokio::fs::read(path).await?;
@@ -1494,17 +1615,20 @@ impl Server {
         let hash_bytes = hasher.finalize();
         let sha256_hex = hex::encode(hash_bytes);
 
-        let file_name = path.file_name()
+        let file_name = path
+            .file_name()
             .and_then(|n| n.to_str())
             .ok_or_else(|| anyhow!("Invalid filename"))?
             .to_string();
         let size_bytes = file_data.len() as u64;
 
         // Insert or update artifact
-        let artifact_id = db.upsert_artifact(&file_name, &sha256_hex, size_bytes)?;
+        let artifact_id =
+            self.provenance_db
+                .upsert_artifact(&file_name, &sha256_hex, size_bytes)?;
 
         // Check if mint event already exists
-        let next_index = db.get_next_event_index(artifact_id)?;
+        let next_index = self.provenance_db.get_next_event_index(artifact_id)?;
         if next_index > 0 {
             // Artifact already has events, skip mint
             return Ok(());
@@ -1544,20 +1668,24 @@ impl Server {
         let ots_proof_b64 = STANDARD.encode(b"PLACEHOLDER_OTS_PROOF");
 
         // Insert mint event
-        db.insert_event(
+        self.provenance_db.insert_event(InsertEventArgs {
             artifact_id,
-            0,
-            &EventAction::Mint,
-            &sha256_hex,
-            None,
-            &issued_at,
-            &event_hash_hex,
-            &ots_proof_b64,
-            &actors,
-            &signatures,
-        )?;
+            index: 0,
+            action: &EventAction::Mint,
+            artifact_sha256_hex: &sha256_hex,
+            prev_event_hash_hex: None,
+            issued_at: &issued_at,
+            event_hash_hex: &event_hash_hex,
+            ots_proof_b64: &ots_proof_b64,
+            actors: &actors,
+            signatures: &signatures,
+        })?;
 
-        info!("Created mint event for {} ({})", file_name, &sha256_hex[..8]);
+        info!(
+            "Created mint event for {} ({})",
+            file_name,
+            &sha256_hex[..8]
+        );
 
         Ok(())
     }

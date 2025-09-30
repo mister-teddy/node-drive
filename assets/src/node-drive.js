@@ -1,6 +1,94 @@
 // @ts-check
 import { makeAutoObservable } from "./esm-imports.js";
-import { calculateSHA256, newUrl, formatFileSize, formatPercent, formatDuration, stamp } from "./utils.js";
+import { calculateSHA256, newUrl, formatFileSize, formatPercent, formatDuration, hexToBytes, download } from "./utils.js";
+
+
+/**
+ * Create OpenTimestamps proof for a file hash
+ * @param {string} filename - Name of the file
+ * @param {string} hash - SHA256 hash of the file
+ * @returns {Promise<{filename: string, timestampBytes: BodyInit} | null>}
+ */
+export async function stamp(filename, hash) {
+    try {
+        // @ts-ignore
+        const { OpenTimestamps } = window;
+
+        if (!OpenTimestamps) {
+            console.warn("OpenTimestamps library not loaded");
+            return null;
+        }
+
+        const op = new OpenTimestamps.Ops.OpSHA256();
+        const detached = OpenTimestamps.DetachedTimestampFile.fromHash(op, hexToBytes(hash));
+
+        // Create the timestamp
+        await OpenTimestamps.stamp(detached);
+
+        // Serialize the timestamp
+        const ctx = new OpenTimestamps.Context.StreamSerialization();
+        detached.serialize(ctx);
+        const timestampBytes = ctx.getOutput();
+
+        const extractedFileExtension = filename.match(/\.[0-9a-z]+$/i);
+        const isOtsExt = extractedFileExtension !== null && extractedFileExtension.length > 0 && extractedFileExtension[0] === ".ots";
+        const otsFilename = filename + (isOtsExt ? '' : '.ots')
+
+        download(otsFilename, timestampBytes);
+
+        return { filename, timestampBytes };
+    } catch (error) {
+        console.error("OpenTimestamps stamping error:", error);
+        return null;
+    }
+}
+
+
+/**
+ * Check if OTS proof is still pending (placeholder)
+ * @param {{ detachedOts: any, detached: any }} param0
+ * @returns {Promise<'pending-attestation' | 'cannot-verify' | 'unknown-attestation-type' | Object>}
+ */
+export async function getStampStatus({ detachedOts, detached }) {
+    try {
+
+        // @ts-ignore
+        const { OpenTimestamps } = window;
+
+        // OpenTimestamps upgrade command
+        // OpenTimestamps.upgrade(detachedOts).then( (changed)=>{
+        //     const bytes = detachedOts.serializeToBytes();
+        // 	if(changed){
+        //     	//success('Timestamp has been successfully upgraded!');
+        //         filename = filename || hash + ".ots";
+        //     	download(filename, bytes);
+
+        //     	// update proof
+        //     	Proof.data = bin2String(bytes);
+        // 	} else {
+        //     	// File not changed: just upgraded
+        // 	}
+        // 	return OpenTimestamps.verify(detachedOts,detached)
+
+        const results = await OpenTimestamps.verify(detachedOts, detached)
+        if (Object.keys(results).length == 0) {
+            // no attestation returned
+            if (detachedOts.timestamp.isTimestampComplete()) {
+                // check attestations
+                detachedOts.timestamp.allAttestations().forEach((/** @type {any} */ attestation) => {
+                    if (attestation instanceof OpenTimestamps.Notary.UnknownAttestation) {
+                        return 'unknown-attestation-type';
+                    }
+                });
+            } else {
+                return 'pending-attestation';
+            }
+        }
+        return results;
+    } catch (error) {
+        return 'cannot-verify';
+    }
+};
 
 /**
  * @typedef {Object} DATA
@@ -53,7 +141,7 @@ export class Uploader {
         };
 
         // Grouped timestamp properties
-        /** @type {{ status: string, bytes: Uint8Array | null, created: Date | null, error: string | null, bitcoinBlock: any, bitcoinConfirmed: any }} */
+        /** @type {{ status: string, bytes: BodyInit | null, created: Date | null, error: string | null, bitcoinBlock: any, bitcoinConfirmed: any }} */
         this.timestamp = {
             status: "none", // "none", "creating", "pending", "confirmed", "failed"
             bytes: null,
@@ -98,6 +186,32 @@ export class Uploader {
         Uploader.queues.push(this);
         Uploader.runQueue();
         return this;
+    }
+
+    /**
+     * Upload OTS proof to server after file upload completes
+     */
+    async uploadOtsProof() {
+        if (!this.timestamp.bytes) {
+            console.warn("No OTS timestamp bytes to upload");
+            return;
+        }
+
+        try {
+            const otsUrl = this.url + "?ots";
+            const response = await fetch(otsUrl, {
+                method: "POST",
+                body: this.timestamp.bytes,
+            });
+
+            if (response.ok) {
+                console.log("OTS proof uploaded successfully");
+            } else {
+                console.warn("Failed to upload OTS proof:", response.statusText);
+            }
+        } catch (error) {
+            console.error("Error uploading OTS proof:", error);
+        }
     }
 
     ajax() {
@@ -173,6 +287,9 @@ export class Uploader {
         failUploaders.delete(this.idx);
         Uploader.runnings--;
         Uploader.runQueue();
+
+        // Upload OTS proof to server after file upload completes
+        this.uploadOtsProof();
     }
 
     /**
@@ -258,7 +375,7 @@ export class Uploader {
 
     /**
      * @param {string} status
-     * @param {Uint8Array<ArrayBufferLike> | null} bytes
+     * @param {BodyInit | null} bytes
      * @param {Date | null} created
      * @param {null|string} error
      */

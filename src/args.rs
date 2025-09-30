@@ -223,17 +223,16 @@ pub fn build_cli() -> Command {
                 .value_name("path")
                 .value_parser(value_parser!(PathBuf))
                 .help("Path to the SSL/TLS certificate's private key"),
+        )
+        .arg(
+            Arg::new("provenance-db")
+                .env("DUFS_PROVENANCE_DB")
+                .hide_env(true)
+                .long("provenance-db")
+                .value_name("path")
+                .value_parser(value_parser!(PathBuf))
+                .help("Path to SQLite database for provenance data [default: provenance.db]"),
         );
-
-    let app = app.arg(
-        Arg::new("provenance-db")
-            .env("DUFS_PROVENANCE_DB")
-            .hide_env(true)
-            .long("provenance-db")
-            .value_name("path")
-            .value_parser(value_parser!(PathBuf))
-            .help("Path to SQLite database for provenance data [default: provenance.db]"),
-    );
 
     app
 }

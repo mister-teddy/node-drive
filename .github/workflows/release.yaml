@@ -90,6 +90,12 @@ jobs:
 
           mkdir $dist_dir
           cp $executable $dist_dir
+
+          # Copy assets directory if it exists
+          if [[ -d "assets" ]]; then
+            cp -r assets $dist_dir/
+          fi
+
           cd $dist_dir
 
           if [[ "$RUNNER_OS" == "Windows" ]]; then
