@@ -203,14 +203,14 @@ jobs:
           key: ${{ secrets.GCP_VPS_SSH_KEY }}
           script: |
             # Stop existing service if running
-            sudo systemctl stop node-drive || true
+            sudo -n systemctl stop node-drive || true
 
             # Download and run install script
-            curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/main/install.sh | bash
+            curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/main/install.sh | sudo -n bash
 
             # Start the service
-            sudo systemctl start node-drive
+            sudo -n systemctl start node-drive
 
             # Verify deployment
             sleep 5
-            sudo systemctl status node-drive
+            sudo -n systemctl status node-drive
