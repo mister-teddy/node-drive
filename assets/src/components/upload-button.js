@@ -1,8 +1,5 @@
 // @ts-check
-// @ts-ignore
-import { createElement } from "https://esm.sh/react@18.3.1";
-// @ts-ignore
-import { makeObservable, observable, action, computed } from "https://esm.sh/mobx@6.15.0";
+import { createElement, makeAutoObservable } from "../esm-imports.js";
 import { store, calculateSHA256, newUrl, formatFileSize, formatPercent, formatDuration, stamp } from "../utils.js";
 
 /**
@@ -94,53 +91,30 @@ class Uploader {
     this.status = "pending"; // "pending", "uploading", "complete", "failed"
     this.statusReason = "";
     this.progressValue = 0;
-    this.progressText = "";
-    this.speedText = "";
-    this.durationText = "";
 
-    // OpenTimestamps properties
-    this.timestampStatus = "none"; // "none", "creating", "pending", "confirmed", "failed"
-    this.timestampBytes = null;
-    this.timestampCreated = null;
-    this.timestampError = null;
-    this.bitcoinBlock = null;
-    this.bitcoinConfirmed = null;
+    // Grouped text properties
+    this.text = {
+      progress: "",
+      speed: "",
+      duration: ""
+    };
+
+    // Grouped timestamp properties
+    /** @type {{ status: string, bytes: Uint8Array | null, created: Date | null, error: string | null, bitcoinBlock: any, bitcoinConfirmed: any }} */
+    this.timestamp = {
+      status: "none", // "none", "creating", "pending", "confirmed", "failed"
+      bytes: null,
+      created: null,
+      error: null,
+      bitcoinBlock: null,
+      bitcoinConfirmed: null,
+    };
 
     // SHA256 hash (computed after hashing)
     this.sha256 = "";
 
     // Make this instance observable
-    makeObservable(this, {
-      // Observable state
-      uploaded: observable,
-      status: observable,
-      statusReason: observable,
-      progressValue: observable,
-      progressText: observable,
-      speedText: observable,
-      durationText: observable,
-      timestampStatus: observable,
-      timestampBytes: observable,
-      timestampCreated: observable,
-      timestampError: observable,
-      bitcoinBlock: observable,
-      bitcoinConfirmed: observable,
-      sha256: observable,
-
-      // Actions that modify state
-      updateProgress: action,
-      setComplete: action,
-      setFailed: action,
-      updateTimestampStatus: action,
-      setInitialStatus: action,
-      setUploading: action,
-
-      // Computed properties
-      isComplete: computed,
-      isUploading: computed,
-      isFailed: computed,
-      displayProgress: computed
-    });
+    makeAutoObservable(this);
 
     this.upload();
   }
@@ -268,7 +242,7 @@ class Uploader {
   isTimestampConfirmed() {
     // For demo purposes, simulate confirmation after upload is complete
     // In production, this would check actual OpenTimestamps verification
-    return this.status === "complete" && this.timestampStatus === "pending" && !!this.timestampBytes;
+    return this.status === "complete" && this.timestamp.status === "pending" && !!this.timestamp.bytes;
   }
 
   /**
@@ -276,7 +250,7 @@ class Uploader {
    * @returns {string}
    */
   getTimestampStatusText() {
-    switch (this.timestampStatus) {
+    switch (this.timestamp.status) {
       case "creating":
         return "Creating timestamp proof...";
       case "pending":
@@ -284,64 +258,80 @@ class Uploader {
       case "confirmed":
         return "Verified on Bitcoin blockchain";
       case "failed":
-        return this.timestampError || "Timestamp creation failed";
+        return this.timestamp.error || "Timestamp creation failed";
       default:
         return "No timestamp";
     }
   }
 
   // MobX Actions
+  /**
+   * @param {number} loaded
+   * @param {number} percent
+   * @param {string} progressText
+   * @param {string} speedText
+   * @param {string} duration
+   */
   updateProgress(loaded, percent, progressText, speedText, duration) {
     this.uploaded = loaded;
     this.status = "uploading";
     this.statusReason = "";
     this.progressValue = percent;
-    this.progressText = progressText;
-    this.speedText = speedText;
-    this.durationText = duration;
+    this.text.progress = progressText;
+    this.text.speed = speedText;
+    this.text.duration = duration;
   }
 
   setComplete() {
     this.status = "complete";
     this.statusReason = "";
     this.progressValue = 100;
-    this.progressText = "100%";
-    this.speedText = "";
-    this.durationText = "";
+    this.text.progress = "100%";
+    this.text.speed = "";
+    this.text.duration = "";
   }
 
+  /**
+   * @param {string} reason
+   */
   setFailed(reason) {
     this.status = "failed";
     this.statusReason = reason;
     this.progressValue = 0;
-    this.progressText = "";
-    this.speedText = "";
-    this.durationText = "";
+    this.text.progress = "";
+    this.text.speed = "";
+    this.text.duration = "";
   }
 
+  /**
+   * @param {string} status
+   * @param {Uint8Array<ArrayBufferLike> | null} bytes
+   * @param {Date | null} created
+   * @param {null|string} error
+   */
   updateTimestampStatus(status, bytes, created, error) {
-    this.timestampStatus = status;
-    this.timestampBytes = bytes;
-    this.timestampCreated = created;
-    this.timestampError = error;
+    this.timestamp.status = status;
+    this.timestamp.bytes = bytes;
+    this.timestamp.created = created;
+    this.timestamp.error = error;
   }
 
   setInitialStatus() {
     this.status = "pending";
     this.statusReason = "";
     this.progressValue = 0;
-    this.progressText = "";
-    this.speedText = "";
-    this.durationText = "";
+    this.text.progress = "";
+    this.text.speed = "";
+    this.text.duration = "";
   }
 
   setUploading() {
     this.status = "uploading";
     this.statusReason = "";
     this.progressValue = 0;
-    this.progressText = "";
-    this.speedText = "";
-    this.durationText = "";
+    this.text.progress = "";
+    this.text.speed = "";
+    this.text.duration = "";
   }
 
   // MobX Computed Properties
@@ -358,8 +348,8 @@ class Uploader {
   }
 
   get displayProgress() {
-    if (this.isUploading && this.progressText) {
-      return `${this.progressText} • ${this.speedText}`;
+    if (this.isUploading && this.text.progress) {
+      return `${this.text.progress} • ${this.text.speed}`;
     }
     if (this.isFailed && this.statusReason) {
       return `Failed: ${this.statusReason}`;

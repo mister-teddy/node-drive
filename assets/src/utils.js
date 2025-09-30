@@ -1,8 +1,6 @@
 // @ts-check
-// @ts-ignore
-export { autorun, toJS } from "https://esm.sh/mobx@6.15.0";
-// @ts-ignore
-import { observable } from "https://esm.sh/mobx@6.15.0";
+import { observable } from "./esm-imports.js";
+export { autorun, toJS } from "./esm-imports.js";
 
 export const store = observable({
   uploadQueue: [],
@@ -343,7 +341,7 @@ export async function stamp(filename, hash) {
 export function hexToBytes(/** @type {string} */ hex) {
   const bytes = [];
   for (var c = 0; c < hex.length; c += 2) {
-    bytes.push(parseInt(hex.substr(c, 2), 16));
+    bytes.push(parseInt(hex.substring(c, c + 2), 16));
   }
   return bytes;
 };
@@ -390,11 +388,13 @@ export async function copyToClipboard(text) {
     // Fallback for older browsers
     const textArea = document.createElement("textarea");
     textArea.value = text;
+    textArea.style.position = 'fixed';
+    textArea.style.left = '-9999px';
     document.body.appendChild(textArea);
     textArea.select();
     try {
-      document.execCommand('copy');
-      return true;
+      const success = document.execCommand('copy');
+      return success;
     } catch (e) {
       return false;
     } finally {

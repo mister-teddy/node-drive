@@ -279,7 +279,6 @@ pub struct Args {
     pub render_spa: bool,
     pub render_try_index: bool,
     pub enable_cors: bool,
-    pub assets: Option<PathBuf>,
     #[serde(deserialize_with = "deserialize_log_http")]
     #[serde(rename = "log-format")]
     pub http_logger: HttpLogger,
@@ -377,14 +376,6 @@ impl Args {
             args.render_spa = matches.get_flag("render-spa");
         }
 
-        if let Some(assets_path) = matches.get_one::<PathBuf>("assets") {
-            args.assets = Some(assets_path.clone());
-        }
-
-        if let Some(assets_path) = &args.assets {
-            args.assets = Some(Args::sanitize_assets_path(assets_path)?);
-        }
-
         if let Some(log_format) = matches.get_one::<String>("log-format") {
             args.http_logger = log_format.parse()?;
         }
@@ -435,14 +426,6 @@ impl Args {
                 std::fs::canonicalize(p)
             })
             .with_context(|| format!("Failed to access path `{}`", path.display()))
-    }
-
-    fn sanitize_assets_path<P: AsRef<Path>>(path: P) -> Result<PathBuf> {
-        let path = Self::sanitize_path(path)?;
-        if !path.join("index.html").exists() {
-            bail!("Path `{}` doesn't contains index.html", path.display());
-        }
-        Ok(path)
     }
 }
 

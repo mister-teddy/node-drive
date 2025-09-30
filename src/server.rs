@@ -56,12 +56,6 @@ pub type Request = hyper::Request<Incoming>;
 pub type Response = hyper::Response<BoxBody<Bytes, anyhow::Error>>;
 
 const INDEX_HTML: &str = include_str!("../assets/index.html");
-const INDEX_CSS: &str = include_str!("../assets/index.css");
-const INDEX_JS: &str = include_str!("../assets/index.js");
-const COMPONENT_UPLOAD_BUTTON: &str = include_str!("../assets/src/components/upload-button.js");
-const COMPONENT_UPLOAD_TABLE: &str = include_str!("../assets/src/components/upload-table.js");
-const UTILS_JS: &str = include_str!("../assets/src/utils.js");
-const FAVICON_ICO: &[u8] = include_bytes!("../assets/favicon.ico");
 const INDEX_NAME: &str = "index.html";
 const BUF_SIZE: usize = 65536;
 const EDITABLE_TEXT_MAX_SIZE: u64 = 4194304; // 4M
@@ -93,10 +87,7 @@ impl Server {
         } else {
             vec![]
         };
-        let html = match args.assets.as_ref() {
-            Some(path) => Cow::Owned(std::fs::read_to_string(path.join("index.html"))?),
-            None => Cow::Borrowed(INDEX_HTML),
-        };
+        let html = Cow::Borrowed(INDEX_HTML);
         Ok(Self {
             args,
             running,
@@ -742,84 +733,26 @@ impl Server {
     async fn handle_internal(
         &self,
         req_path: &str,
-        headers: &HeaderMap<HeaderValue>,
+        _headers: &HeaderMap<HeaderValue>,
         res: &mut Response,
     ) -> Result<bool> {
-        if let Some(name) = req_path.strip_prefix(&self.assets_prefix) {
-            match self.args.assets.as_ref() {
-                Some(assets_path) => {
-                    let path = assets_path.join(name);
-                    if path.exists() {
-                        self.handle_send_file(&path, headers, false, res).await?;
-                    } else {
-                        status_not_found(res);
-                        return Ok(true);
-                    }
-                }
-                None => match name {
-                    "index.js" => {
-                        *res.body_mut() = body_full(INDEX_JS);
-                        res.headers_mut().insert(
-                            "content-type",
-                            HeaderValue::from_static("application/javascript; charset=UTF-8"),
-                        );
-                    }
-                    "index.css" => {
-                        *res.body_mut() = body_full(INDEX_CSS);
-                        res.headers_mut().insert(
-                            "content-type",
-                            HeaderValue::from_static("text/css; charset=UTF-8"),
-                        );
-                    }
-                    "favicon.ico" => {
-                        *res.body_mut() = body_full(FAVICON_ICO);
-                        res.headers_mut()
-                            .insert("content-type", HeaderValue::from_static("image/x-icon"));
-                    }
-                    "src/components/upload-button.js" => {
-                        *res.body_mut() = body_full(COMPONENT_UPLOAD_BUTTON);
-                        res.headers_mut().insert(
-                            "content-type",
-                            HeaderValue::from_static("application/javascript; charset=UTF-8"),
-                        );
-                    }
-                    "src/components/upload-table.js" => {
-                        *res.body_mut() = body_full(COMPONENT_UPLOAD_TABLE);
-                        res.headers_mut().insert(
-                            "content-type",
-                            HeaderValue::from_static("application/javascript; charset=UTF-8"),
-                        );
-                    }
-                    "src/utils.js" => {
-                        *res.body_mut() = body_full(UTILS_JS);
-                        res.headers_mut().insert(
-                            "content-type",
-                            HeaderValue::from_static("application/javascript; charset=UTF-8"),
-                        );
-                    }
-                    _ => {
-                        status_not_found(res);
-                    }
-                },
+        if let Some(_name) = req_path.strip_prefix(&self.assets_prefix) {
+            // Serve embedded assets
+            let path = PathBuf::from(format!("assets/{}", _name));
+            if path.exists() {
+                self.handle_send_file(&path, _headers, false, res).await?;
+                return Ok(true);
+            } else {
+                status_not_found(res);
             }
-            res.headers_mut().insert(
-                "cache-control",
-                HeaderValue::from_static("public, max-age=31536000, immutable"),
-            );
-            res.headers_mut().insert(
-                "x-content-type-options",
-                HeaderValue::from_static("nosniff"),
-            );
-            Ok(true)
         } else if req_path == HEALTH_CHECK_PATH {
             res.headers_mut()
                 .typed_insert(ContentType::from(mime_guess::mime::APPLICATION_JSON));
 
             *res.body_mut() = body_full(r#"{"status":"OK"}"#);
-            Ok(true)
-        } else {
-            Ok(false)
+            return Ok(true);
         }
+        Ok(false)
     }
 
     async fn handle_send_file(

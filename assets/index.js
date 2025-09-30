@@ -1,7 +1,7 @@
-import React from "https://esm.sh/react@18.3.1";
-import { createRoot } from "https://esm.sh/react-dom@18.3.1/client";
+import { React, createRoot } from "./src/esm-imports.js";
 import UploadButton from "./src/components/upload-button.js";
 import UploadTable from "./src/components/upload-table.js";
+import FilesTable from "./src/components/files-table.js";
 import {
   newUrl,
   baseUrl,
@@ -120,6 +120,7 @@ function registerComponent(name, component) {
 // Register React components
 registerComponent("UploadButton", UploadButton);
 registerComponent("UploadTable", UploadTable);
+registerComponent("FilesTable", FilesTable);
 
 /**
  * Mount React components to elements with data-react-component attribute
@@ -139,19 +140,6 @@ async function mountReactComponents() {
     }
   }
 }
-
-/**
- * @type Element
- */
-let $pathsTable;
-/**
- * @type Element
- */
-let $pathsTableHead;
-/**
- * @type Element
- */
-let $pathsTableBody;
 
 /**
  * @type Element
@@ -196,9 +184,6 @@ window.addEventListener("DOMContentLoaded", async () => {
 });
 
 async function ready() {
-  $pathsTable = document.querySelector(".paths-table");
-  $pathsTableHead = document.querySelector(".paths-table thead");
-  $pathsTableBody = document.querySelector(".paths-table tbody");
   $emptyFolder = document.querySelector(".empty-folder");
   $editor = document.querySelector(".editor");
   $loginBtn = document.querySelector(".login-btn");
@@ -294,153 +279,15 @@ async function setupIndexPage() {
     setupSearch();
   }
 
-  renderPathsTableHead();
-  renderPathsTableBody();
+  // Show empty folder message if needed (React component will handle rendering files)
+  if (!DATA.paths || DATA.paths.length === 0) {
+    $emptyFolder.textContent = DIR_EMPTY_NOTE;
+    $emptyFolder.classList.remove("hidden");
+  }
 
   if (DATA.user) {
     setupDownloadWithToken();
   }
-}
-
-/**
- * Render path table thead
- */
-function renderPathsTableHead() {
-  const headerItems = [
-    {
-      name: "name",
-      props: `colspan="2"`,
-      text: "Name",
-    },
-    {
-      name: "mtime",
-      props: ``,
-      text: "Last Modified",
-    },
-    {
-      name: "size",
-      props: ``,
-      text: "Size",
-    },
-  ];
-  $pathsTableHead.insertAdjacentHTML(
-    "beforeend",
-    `
-    <tr>
-      ${headerItems
-      .map((item) => {
-        let svg = `<svg width="12" height="12" viewBox="0 0 16 16"><path fill-rule="evenodd" d="M11.5 15a.5.5 0 0 0 .5-.5V2.707l3.146 3.147a.5.5 0 0 0 .708-.708l-4-4a.5.5 0 0 0-.708 0l-4 4a.5.5 0 1 0 .708.708L11 2.707V14.5a.5.5 0 0 0 .5.5zm-7-14a.5.5 0 0 1 .5.5v11.793l3.146-3.147a.5.5 0 0 1 .708.708l-4 4a.5.5 0 0 1-.708 0l-4-4a.5.5 0 0 1 .708-.708L4 13.293V1.5a.5.5 0 0 1 .5-.5z"/></svg>`;
-        let order = "desc";
-        if (PARAMS.sort === item.name) {
-          if (PARAMS.order === "desc") {
-            order = "asc";
-            svg = `<svg width="12" height="12" viewBox="0 0 16 16"><path fill-rule="evenodd" d="M8 1a.5.5 0 0 1 .5.5v11.793l3.146-3.147a.5.5 0 0 1 .708.708l-4 4a.5.5 0 0 1-.708 0l-4-4a.5.5 0 0 1 .708-.708L7.5 13.293V1.5A.5.5 0 0 1 8 1z"/></svg>`;
-          } else {
-            svg = `<svg width="12" height="12" viewBox="0 0 16 16"><path fill-rule="evenodd" d="M8 15a.5.5 0 0 0 .5-.5V2.707l3.146 3.147a.5.5 0 0 0 .708-.708l-4-4a.5.5 0 0 0-.708 0l-4 4a.5.5 0 1 0 .708.708L7.5 2.707V14.5a.5.5 0 0 0 .5.5z"/></svg>`;
-          }
-        }
-        const qs = new URLSearchParams({
-          ...PARAMS,
-          order,
-          sort: item.name,
-        }).toString();
-        const icon = `<span>${svg}</span>`;
-        return `<th class="cell-${item.name}" ${item.props}><a href="?${qs}">${item.text}${icon}</a></th>`;
-      })
-      .join("\n")}
-      <th class="cell-actions">Actions</th>
-    </tr>
-  `,
-  );
-}
-
-/**
- * Render path table tbody
- */
-function renderPathsTableBody() {
-  if (DATA.paths && DATA.paths.length > 0) {
-    const len = DATA.paths.length;
-    if (len > 0) {
-      $pathsTable.classList.remove("hidden");
-    }
-    for (let i = 0; i < len; i++) {
-      addPath(DATA.paths[i], i);
-    }
-  } else {
-    $emptyFolder.textContent = DIR_EMPTY_NOTE;
-    $emptyFolder.classList.remove("hidden");
-  }
-}
-
-/**
- * Add pathitem
- * @param {PathItem} file
- * @param {number} index
- */
-function addPath(file, index) {
-  const encodedName = encodedStr(file.name);
-  let url = newUrl(file.name);
-  let actionDelete = "";
-  let actionDownload = "";
-  let actionMove = "";
-  let actionEdit = "";
-  let actionView = "";
-  let isDir = file.path_type.endsWith("Dir");
-  if (isDir) {
-    url += "/";
-    if (DATA.allow_archive) {
-      actionDownload = `
-      <div class="action-btn">
-        <a class="dlwt" href="${url}?zip" title="Download folder as a .zip file" download>${ICONS.download}</a>
-      </div>`;
-    }
-  } else {
-    actionDownload = `
-    <div class="action-btn" >
-      <a class="dlwt" href="${url}" title="Download file" download>${ICONS.download}</a>
-    </div>`;
-  }
-  if (DATA.allow_delete) {
-    if (DATA.allow_upload) {
-      actionMove = `<div onclick="movePath(${index})" class="action-btn" id="moveBtn${index}" title="Move to new path">${ICONS.move}</div>`;
-      if (!isDir) {
-        actionEdit = `<a class="action-btn" title="Edit file" target="_blank" href="${url}?edit">${ICONS.edit}</a>`;
-      }
-    }
-    actionDelete = `
-    <div onclick="deletePath(${index})" class="action-btn" id="deleteBtn${index}" title="Delete">${ICONS.delete}</div>`;
-  }
-  if (!actionEdit && !isDir) {
-    actionView = `<a class="action-btn" title="View file" target="_blank" href="${url}?view">${ICONS.view}</a>`;
-  }
-  let actionCell = `
-  <td class="cell-actions">
-    ${actionDownload}
-    ${actionView}
-    ${actionMove}
-    ${actionDelete}
-    ${actionEdit}
-  </td>`;
-
-  let sizeDisplay = isDir
-    ? formatDirSize(file.size)
-    : formatFileSize(file.size).join(" ");
-
-  $pathsTableBody.insertAdjacentHTML(
-    "beforeend",
-    `
-<tr id="addPath${index}">
-  <td class="path cell-icon">
-    ${getPathSvg(file.path_type)}
-  </td>
-  <td class="path cell-name">
-    <a href="${url}" ${isDir ? "" : `target="_blank"`}>${encodedName}</a>
-  </td>
-  <td class="cell-mtime">${formatMtime(file.mtime)}</td>
-  <td class="cell-size">${sizeDisplay}</td>
-  ${actionCell}
-</tr>`,
-  );
 }
 
 function setupDropzone() {
@@ -626,54 +473,6 @@ async function setupEditorPage() {
   }
 }
 
-/**
- * Delete path
- * @param {number} index
- * @returns
- */
-async function deletePath(index) {
-  const file = DATA.paths[index];
-  if (!file) return;
-  await doDeletePath(file.name, newUrl(file.name), () => {
-    document.getElementById(`addPath${index}`)?.remove();
-    DATA.paths[index] = null;
-    if (!DATA.paths.find((v) => !!v)) {
-      $pathsTable.classList.add("hidden");
-      $emptyFolder.textContent = DIR_EMPTY_NOTE;
-      $emptyFolder.classList.remove("hidden");
-    }
-  });
-}
-
-async function doDeletePath(name, url, cb) {
-  if (!confirm(`Delete \`${name}\`?`)) return;
-  try {
-    await checkAuth();
-    const res = await fetch(url, {
-      method: "DELETE",
-    });
-    await assertResOK(res);
-    cb();
-  } catch (err) {
-    alert(`Cannot delete \`${file.name}\`, ${err.message}`);
-  }
-}
-
-/**
- * Move path
- * @param {number} index
- * @returns
- */
-async function movePath(index) {
-  const file = DATA.paths[index];
-  if (!file) return;
-  const fileUrl = newUrl(file.name);
-  const newFileUrl = await doMovePath(fileUrl);
-  if (newFileUrl) {
-    location.href = newFileUrl.split("/").slice(0, -1).join("/");
-  }
-}
-
 async function doMovePath(fileUrl) {
   const fileUrlObj = new URL(fileUrl);
 
@@ -802,19 +601,5 @@ async function addFileEntries(entries, dirs) {
 
       dirReader.readEntries(successCallback);
     }
-  }
-}
-
-
-function getPathSvg(path_type) {
-  switch (path_type) {
-    case "Dir":
-      return ICONS.dir;
-    case "SymlinkFile":
-      return ICONS.symlinkFile;
-    case "SymlinkDir":
-      return ICONS.symlinkDir;
-    default:
-      return ICONS.file;
   }
 }

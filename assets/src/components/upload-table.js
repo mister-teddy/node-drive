@@ -4,9 +4,8 @@ import {
   useState,
   useEffect,
   createElement,
-  // @ts-ignore
-} from "https://esm.sh/react@18.3.1";
-import { autorun, toJS, store, formatHashShort, formatHashDisplay, copyToClipboard } from "../utils.js";
+} from "../esm-imports.js";
+import { autorun, store, formatHashShort, formatHashDisplay, copyToClipboard } from "../utils.js";
 
 /**
  * @typedef {Object} DATA
@@ -25,7 +24,7 @@ export default function UploadTable({ DATA }) {
   useEffect(() => {
     const disposer = autorun(() => {
       // Access all observable properties to ensure reactivity
-      const queueSnapshot = store.uploadQueue.map(uploader => ({
+      const queueSnapshot = store.uploadQueue.map((/** @type {any} */ uploader) => ({
         // Copy all observable properties
         idx: uploader.idx,
         name: uploader.name,
