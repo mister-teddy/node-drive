@@ -7,11 +7,11 @@ import { autorun, observable, useEffect, useState } from "./esm-imports.js";
  */
 const storeData = {
   uploadQueue: [],
-}
+};
 
 /**
  * An observable store initialized with the provided store data.
- * 
+ *
  * @type {typeof storeData}
  */
 export const store = observable(storeData);
@@ -109,7 +109,7 @@ export async function calculateSHA256(file, progressCallback) {
         // Combine all chunks
         const totalLength = chunks.reduce(
           (sum, chunk) => sum + chunk.length,
-          0,
+          0
         );
         const combined = new Uint8Array(totalLength);
         let offset = 0;
@@ -162,7 +162,7 @@ export function baseName(url) {
     url
       .split("/")
       .filter((v) => v.length > 0)
-      .slice(-1)[0],
+      .slice(-1)[0]
   );
 }
 
@@ -229,7 +229,10 @@ export function formatFileSize(size) {
   if (i >= 3) {
     ratio = 100;
   }
-  return [Math.round((size * ratio) / Math.pow(1024, i) * 100) / 100 / ratio, sizes[i]];
+  return [
+    Math.round(((size * ratio) / Math.pow(1024, i)) * 100) / 100 / ratio,
+    sizes[i],
+  ];
 }
 
 /**
@@ -261,9 +264,12 @@ export function formatPercent(percent) {
  * @returns {string}
  */
 export function encodedStr(rawStr) {
-  return rawStr.replace(/[\u00A0-\u9999<>\&]/g, function (/** @type {string} */ i) {
-    return "&#" + i.charCodeAt(0) + ";";
-  });
+  return rawStr.replace(
+    /[\u00A0-\u9999<>\&]/g,
+    function (/** @type {string} */ i) {
+      return "&#" + i.charCodeAt(0) + ";";
+    }
+  );
 }
 
 /**
@@ -321,7 +327,7 @@ export function decodeBase64(base64String) {
  */
 export function download(filename, bytes) {
   var blob = new Blob([bytes], { type: "octet/stream" });
-  var link = document.createElement('a');
+  var link = document.createElement("a");
   link.href = window.URL.createObjectURL(blob);
   link.download = filename;
   document.body.appendChild(link);
@@ -335,7 +341,7 @@ export function hexToBytes(/** @type {string} */ hex) {
     bytes.push(parseInt(hex.substring(c, c + 2), 16));
   }
   return bytes;
-};
+}
 
 /**
  * Create user-friendly hash representation
@@ -370,12 +376,12 @@ export async function copyToClipboard(text) {
     // Fallback for older browsers
     const textArea = document.createElement("textarea");
     textArea.value = text;
-    textArea.style.position = 'fixed';
-    textArea.style.left = '-9999px';
+    textArea.style.position = "fixed";
+    textArea.style.left = "-9999px";
     document.body.appendChild(textArea);
     textArea.select();
     try {
-      const success = document.execCommand('copy');
+      const success = document.execCommand("copy");
       return success;
     } catch (e) {
       return false;
@@ -394,9 +400,13 @@ export async function copyToClipboard(text) {
 export function useStore(selector) {
   const [data, setData] = useState(selector());
 
-  useEffect(() => autorun(() => {
-    setData(selector(store));
-  }), []);
+  useEffect(
+    () =>
+      autorun(() => {
+        setData(selector(store));
+      }),
+    []
+  );
 
   return data;
 }
@@ -417,7 +427,7 @@ export function string2Bin(str) {
 /**
  * Convert a base64 string to a Uint8Array
  * @param {string} base64 - The base64 encoded string
- * @returns {Uint8Array} The decoded byte array
+ * @returns {Uint8Array<ArrayBuffer>} The decoded byte array
  */
 export function base64ToUint8Array(base64) {
   const binary = atob(base64); // decode base64 to binary string

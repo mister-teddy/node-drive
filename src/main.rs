@@ -4,6 +4,7 @@ mod http_logger;
 mod http_utils;
 mod logger;
 mod noscript;
+mod ots_stamper;
 mod provenance;
 mod server;
 mod utils;

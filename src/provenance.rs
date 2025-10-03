@@ -92,6 +92,9 @@ impl ProvenanceDb {
     pub fn new<P: AsRef<Path>>(path: P) -> Result<Self> {
         let conn = Connection::open(path)?;
 
+        // Enable foreign key constraints
+        conn.execute("PRAGMA foreign_keys = ON", [])?;
+
         conn.execute(
             "CREATE TABLE IF NOT EXISTS artifacts (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -177,16 +180,19 @@ impl ProvenanceDb {
         let conn = self.conn.lock().unwrap();
         let now = chrono::Utc::now().to_rfc3339();
 
-        conn.execute(
-            "INSERT INTO artifacts (file_name, sha256_hex, size_bytes, created_at)
-             VALUES (?1, ?2, ?3, ?4)
-             ON CONFLICT(sha256_hex) DO UPDATE SET
-                file_name = ?1,
-                size_bytes = ?3",
+        let artifact_id: i64 = conn.query_row(
+            r#"
+            INSERT INTO artifacts (file_name, sha256_hex, size_bytes, created_at)
+            VALUES (?1, ?2, ?3, ?4)
+            ON CONFLICT(sha256_hex) DO UPDATE SET
+                file_name = excluded.file_name,
+                size_bytes = excluded.size_bytes
+            RETURNING id
+            "#,
             params![file_name, sha256_hex, size_bytes, now],
+            |row| row.get(0),
         )?;
 
-        let artifact_id = conn.last_insert_rowid();
         Ok(artifact_id)
     }
 

@@ -31,7 +31,7 @@ use hyper::{
     },
     Method, StatusCode, Uri,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::borrow::Cow;
 use std::cmp::Ordering;
@@ -403,8 +403,12 @@ impl Server {
                 }
             }
             Method::POST => {
+                // Check if this is an OTS verification request
+                if has_query_flag(&query_params, "verify") {
+                    self.handle_ots_verify(req, &mut res).await?;
+                }
                 // Check if this is an OTS upload request
-                if has_query_flag(&query_params, "ots") {
+                else if has_query_flag(&query_params, "ots") {
                     if is_miss || is_dir {
                         status_not_found(&mut res);
                     } else {
@@ -570,8 +574,20 @@ impl Server {
 
         // Create provenance mint event if this is a new file
         if status == StatusCode::CREATED {
-            if let Err(e) = self.create_mint_event(path).await {
-                warn!("Failed to create mint event for {:?}: {}", path, e);
+            match self.create_mint_event(path).await {
+                Ok(mint_response) => {
+                    // Return JSON response with mint event data including OTS
+                    res.headers_mut().insert(
+                        hyper::header::CONTENT_TYPE,
+                        HeaderValue::from_static("application/json"),
+                    );
+                    *res.body_mut() = body_full(serde_json::to_string(&mint_response)?);
+                }
+                Err(e) => {
+                    let msg = format!("File uploaded, but failed to create mint event: {e:?}");
+                    *res.body_mut() = body_full(msg);
+                    // Don't fail the upload, just log the warning
+                }
             }
         }
 
@@ -1159,6 +1175,96 @@ impl Server {
         Ok(())
     }
 
+    async fn handle_ots_verify(&self, req: Request, res: &mut Response) -> Result<()> {
+        use crate::ots_stamper;
+        use serde::{Deserialize, Serialize};
+        use std::collections::HashMap;
+
+        // Parse JSON request body
+        #[derive(Deserialize)]
+        struct VerifyRequest {
+            ots_proof_base64: String,
+            artifact_sha256: String,
+        }
+
+        #[derive(Serialize, Clone)]
+        struct ChainResult {
+            timestamp: u64,
+            height: u64,
+        }
+
+        #[derive(Serialize)]
+        struct VerifyResponse {
+            success: bool,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            results: Option<HashMap<String, ChainResult>>,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            error: Option<String>,
+        }
+
+        let body_bytes = req
+            .into_body()
+            .collect()
+            .await
+            .map_err(|e| anyhow!("Failed to read request body: {}", e))?
+            .to_bytes();
+
+        let verify_req: VerifyRequest = serde_json::from_slice(&body_bytes)
+            .map_err(|e| anyhow!("Failed to parse JSON request: {}", e))?;
+
+        // Call full verification function (verifies against blockchain)
+        let result = ots_stamper::verify_timestamp(
+            &verify_req.ots_proof_base64,
+            &verify_req.artifact_sha256,
+        )
+        .await;
+
+        // Convert result to JSON response matching JS library format
+        // The JS library returns: {bitcoin: {timestamp: 1234, height: 5678}, ...}
+        let response = match result {
+            Ok(verification_results) => {
+                // Group results by chain (in case there are multiple chains)
+                // Take the earliest attestation for each chain
+                let mut results_map: HashMap<String, ChainResult> = HashMap::new();
+
+                for vr in verification_results {
+                    let chain_result = ChainResult {
+                        timestamp: vr.timestamp,
+                        height: vr.height,
+                    };
+
+                    // If this chain already exists, keep the earlier timestamp
+                    results_map
+                        .entry(vr.chain)
+                        .and_modify(|existing| {
+                            if vr.timestamp < existing.timestamp {
+                                *existing = chain_result.clone();
+                            }
+                        })
+                        .or_insert(chain_result);
+                }
+
+                VerifyResponse {
+                    success: true,
+                    results: Some(results_map),
+                    error: None,
+                }
+            }
+            Err(e) => VerifyResponse {
+                success: false,
+                results: None,
+                error: Some(e.to_string()),
+            },
+        };
+
+        // Return JSON response
+        res.headers_mut()
+            .typed_insert(ContentType::from(mime_guess::mime::APPLICATION_JSON));
+        *res.body_mut() = body_full(serde_json::to_string(&response)?);
+
+        Ok(())
+    }
+
     async fn handle_tokengen(
         &self,
         relative_path: &str,
@@ -1604,8 +1710,7 @@ impl Server {
         }))
     }
 
-    /// Create a mint event for a newly uploaded file
-    async fn create_mint_event(&self, path: &Path) -> Result<()> {
+    async fn create_mint_event(&self, path: &Path) -> Result<MintEventResponse> {
         use crate::provenance::{compute_event_hash, Actors, EventAction, Signatures};
 
         // Read file and compute SHA-256 hash
@@ -1631,7 +1736,7 @@ impl Server {
         let next_index = self.provenance_db.get_next_event_index(artifact_id)?;
         if next_index > 0 {
             // Artifact already has events, skip mint
-            return Ok(());
+            return Err(anyhow!("Mint event already exists for this artifact"));
         }
 
         // TODO: In production, these would come from the authenticated user
@@ -1663,9 +1768,20 @@ impl Server {
             &issued_at,
         );
 
-        // TODO: In production, generate real OpenTimestamps proof
-        // For now, use placeholder
-        let ots_proof_b64 = STANDARD.encode(b"PLACEHOLDER_OTS_PROOF");
+        // Generate real OpenTimestamps proof using our Rust implementation
+        let digest =
+            hex::decode(&sha256_hex).map_err(|e| anyhow!("Failed to decode SHA256 hex: {}", e))?;
+
+        let ots_bytes = match crate::ots_stamper::create_timestamp(&digest).await {
+            Ok(bytes) => bytes,
+            Err(e) => {
+                warn!("Failed to create OTS proof for mint event: {}", e);
+                // Fall back to placeholder if OTS stamping fails
+                Vec::from(b"PLACEHOLDER_OTS_PROOF" as &[u8])
+            }
+        };
+
+        let ots_proof_b64 = STANDARD.encode(&ots_bytes);
 
         // Insert mint event
         self.provenance_db.insert_event(InsertEventArgs {
@@ -1687,8 +1803,23 @@ impl Server {
             &sha256_hex[..8]
         );
 
-        Ok(())
+        Ok(MintEventResponse {
+            filename: file_name,
+            sha256: sha256_hex,
+            ots_base64: ots_proof_b64,
+            event_hash: event_hash_hex,
+            issued_at,
+        })
     }
+}
+
+#[derive(Debug, Serialize)]
+pub struct MintEventResponse {
+    pub filename: String,
+    pub sha256: String,
+    pub ots_base64: String,
+    pub event_hash: String,
+    pub issued_at: String,
 }
 
 #[derive(Debug, Serialize, PartialEq)]

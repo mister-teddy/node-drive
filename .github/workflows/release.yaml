@@ -176,13 +176,16 @@ jobs:
           script: |
             # Stop existing service if running
             sudo -n systemctl stop node-drive || true
+            sudo -n systemctl stop node-drive-http || true
 
             # Download and run install script
             curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/main/install.sh | bash
 
             # Start the service
             sudo -n systemctl start node-drive
+            sudo -n systemctl start node-drive-http
 
             # Verify deployment
             sleep 5
             sudo -n systemctl status node-drive
+            sudo -n systemctl status node-drive-http

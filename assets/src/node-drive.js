@@ -1,92 +1,47 @@
 // @ts-check
 import { makeAutoObservable } from "./esm-imports.js";
-import { calculateSHA256, newUrl, formatFileSize, formatPercent, formatDuration, hexToBytes, download, string2Bin, base64ToUint8Array } from "./utils.js";
-
-// @ts-ignore
-const { OpenTimestamps } = window;
-if (!OpenTimestamps) {
-    console.warn("OpenTimestamps library not loaded");
-}
-const op = new OpenTimestamps.Ops.OpSHA256();
-
-/**
- * Create OpenTimestamps proof for a file hash
- * @param {string} filename - Name of the file
- * @param {string} hash - SHA256 hash of the file
- * @returns {Promise<{filename: string, timestampBytes: BodyInit} | null>}
- */
-export async function stamp(filename, hash) {
-    try {
-        const detached = OpenTimestamps.DetachedTimestampFile.fromHash(op, hexToBytes(hash));
-
-        // Create the timestamp
-        await OpenTimestamps.stamp(detached);
-
-        // Serialize the timestamp
-        const ctx = new OpenTimestamps.Context.StreamSerialization();
-        detached.serialize(ctx);
-        const timestampBytes = ctx.getOutput();
-
-        const extractedFileExtension = filename.match(/\.[0-9a-z]+$/i);
-        const isOtsExt = extractedFileExtension !== null && extractedFileExtension.length > 0 && extractedFileExtension[0] === ".ots";
-        const otsFilename = filename + (isOtsExt ? '' : '.ots')
-
-        download(otsFilename, timestampBytes);
-
-        return { filename, timestampBytes };
-    } catch (error) {
-        console.error("OpenTimestamps stamping error:", error);
-        return null;
-    }
-}
-
+import {
+  calculateSHA256,
+  newUrl,
+  formatFileSize,
+  formatPercent,
+  formatDuration,
+  base64ToUint8Array,
+  download,
+} from "./utils.js";
 
 /**
- * Check if OTS proof is still pending (placeholder)
+ * Check if OTS proof is still pending by calling the Rust verification endpoint
  * @param {Object} params
  * @param {string} params.otsProofBase64 - Base64-encoded OTS proof
  * @param {string} params.artifactSha256 - SHA256 hash of the artifact
- * @returns {Promise<'pending-attestation' | 'cannot-verify' | 'unknown-attestation-type' | { bitcoin: { timestamp: number, height: number } }>}
+ * @returns {Promise<'pending-attestation' | 'cannot-verify' | 'unknown-attestation-type' | { bitcoin: { height: number } }>}
  */
 export async function getStampStatus({ otsProofBase64, artifactSha256 }) {
-    try {
-        // OpenTimestamps upgrade command
-        // OpenTimestamps.upgrade(detachedOts).then( (changed)=>{
-        //     const bytes = detachedOts.serializeToBytes();
-        // 	if(changed){
-        //     	//success('Timestamp has been successfully upgraded!');
-        //         filename = filename || hash + ".ots";
-        //     	download(filename, bytes);
+  try {
+    const response = await fetch("?verify", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        ots_proof_base64: otsProofBase64,
+        artifact_sha256: artifactSha256,
+      }),
+    });
 
-        //     	// update proof
-        //     	Proof.data = bin2String(bytes);
-        // 	} else {
-        //     	// File not changed: just upgraded
-        // 	}
-        // 	return OpenTimestamps.verify(detachedOts,detached)
-
-        const detachedOts = OpenTimestamps.DetachedTimestampFile.deserialize(base64ToUint8Array(otsProofBase64));
-        const detached = OpenTimestamps.DetachedTimestampFile.fromHash(op, hexToBytes(artifactSha256));
-
-        const results = await OpenTimestamps.verify(detachedOts, detached)
-        if (Object.keys(results).length == 0) {
-            // no attestation returned
-            if (detachedOts.timestamp.isTimestampComplete()) {
-                // check attestations
-                detachedOts.timestamp.allAttestations().forEach((/** @type {any} */ attestation) => {
-                    if (attestation instanceof OpenTimestamps.Notary.UnknownAttestation) {
-                        return 'unknown-attestation-type';
-                    }
-                });
-            }
-            return 'pending-attestation';
-        } else {
-            return results;
-        }
-    } catch (error) {
-        return 'cannot-verify';
+    if (!response.ok) {
+      return "cannot-verify";
     }
-};
+
+    debugger;
+    const { attestations } = await response.json();
+    return attestations[0];
+  } catch (error) {
+    console.error("OTS verification error:", error);
+    return "cannot-verify";
+  }
+}
 
 /**
  * @typedef {Object} DATA
@@ -107,330 +62,331 @@ const DUFS_MAX_UPLOADINGS = 1;
  * @returns {Promise<void>}
  */
 async function checkAuth() {
-    // Placeholder implementation - this should match the checkAuth from index.js
-    return Promise.resolve();
+  // Placeholder implementation - this should match the checkAuth from index.js
+  return Promise.resolve();
 }
 
-
 export class Uploader {
-    /**
-     * @param {File} file
-     * @param {string[]} pathParts
-     */
-    constructor(file, pathParts) {
-        this.uploaded = 0;
-        this.uploadOffset = 0;
-        this.lastUptime = 0;
-        this.name = [...pathParts, file.name].join("/");
-        this.idx = Uploader.globalIdx++;
-        this.file = file;
-        this.url = newUrl(this.name);
+  /**
+   * @param {File} file
+   * @param {string[]} pathParts
+   */
+  constructor(file, pathParts) {
+    this.uploaded = 0;
+    this.uploadOffset = 0;
+    this.lastUptime = 0;
+    this.name = [...pathParts, file.name].join("/");
+    this.idx = Uploader.globalIdx++;
+    this.file = file;
+    this.url = newUrl(this.name);
 
-        // New: status state variables
-        this.status = "pending"; // "pending", "uploading", "complete", "failed"
-        this.statusReason = "";
-        this.progressValue = 0;
+    // New: status state variables
+    this.status = "pending"; // "pending", "uploading", "complete", "failed"
+    this.statusReason = "";
+    this.progressValue = 0;
 
-        // Grouped text properties
-        this.text = {
-            progress: "",
-            speed: "",
-            duration: ""
-        };
+    // Grouped text properties
+    this.text = {
+      progress: "",
+      speed: "",
+      duration: "",
+    };
 
-        // Grouped timestamp properties
-        /** @type {{ status: string, bytes: BodyInit | null, created: Date | null, error: string | null, bitcoinBlock: any, bitcoinConfirmed: any }} */
-        this.timestamp = {
-            status: "none", // "none", "creating", "pending", "confirmed", "failed"
-            bytes: null,
-            created: null,
-            error: null,
-            bitcoinBlock: null,
-            bitcoinConfirmed: null,
-        };
+    // Grouped timestamp properties
+    /** @type {{ status: string, bytes: BodyInit | null, created: Date | null, error: string | null, bitcoinBlock: any, bitcoinConfirmed: any }} */
+    this.timestamp = {
+      status: "none", // "none", "creating", "pending", "confirmed", "failed"
+      bytes: null,
+      created: null,
+      error: null,
+      bitcoinBlock: null,
+      bitcoinConfirmed: null,
+    };
 
-        // SHA256 hash (computed after hashing)
-        this.sha256 = "";
+    // SHA256 hash (computed after hashing)
+    this.sha256 = "";
 
-        // Make this instance observable
-        makeAutoObservable(this);
+    // Make this instance observable
+    makeAutoObservable(this);
 
-        this.upload();
+    this.upload();
+  }
+
+  async upload() {
+    // Check for secure context (HTTPS required for crypto.subtle)
+    if (!window.isSecureContext) {
+      this.setFailed("HTTPS required for provenance features");
+      showInsecureContextWarning();
+      return;
     }
 
-    async upload() {
-        // Check for secure context (HTTPS required for crypto.subtle)
-        if (!window.isSecureContext) {
-            this.setFailed("HTTPS required for provenance features");
-            showInsecureContextWarning();
-            return;
-        }
+    // SHA256 hash calculation
+    this.sha256 = await calculateSHA256(
+      this.file,
+      (/** @type {number} */ progress) => {
+        console.log(`Progress: ${progress}%`);
+      }
+    );
 
-        // SHA256 hash calculation
-        this.sha256 = await calculateSHA256(this.file, (/** @type {number} */ progress) => {
-            console.log(`Progress: ${progress}%`);
-        });
+    // Set timestamp status to creating (will be updated when upload completes)
+    this.updateTimestampStatus("creating", null, null, null);
 
-        // Stamp it with OpenTimestamps
-        try {
-            this.updateTimestampStatus("creating", null, null, null);
-            const timestampResult = await stamp(this.name, this.sha256);
-            if (timestampResult && timestampResult.timestampBytes) {
-                this.updateTimestampStatus("pending", timestampResult.timestampBytes, new Date(), null);
-            } else {
-                this.updateTimestampStatus("failed", null, null, null);
+    // Set initial status using action
+    this.setInitialStatus();
+    Uploader.queues.push(this);
+    Uploader.runQueue();
+    return this;
+  }
+
+  ajax() {
+    const { url } = this;
+
+    this.uploaded = 0;
+    this.lastUptime = Date.now();
+
+    this.setUploading();
+
+    const ajax = new XMLHttpRequest();
+    ajax.upload.addEventListener("progress", (e) => this.progress(e), false);
+    ajax.addEventListener("readystatechange", () => {
+      if (ajax.readyState === 4) {
+        if (ajax.status >= 200 && ajax.status < 300) {
+          // Check if response contains mint event data (JSON response for new uploads)
+          const contentType = ajax.getResponseHeader("content-type");
+          if (contentType && contentType.includes("application/json")) {
+            try {
+              const mintEvent = JSON.parse(ajax.responseText);
+              debugger;
+              this.handleMintEventResponse(mintEvent);
+            } catch (e) {
+              console.warn("Failed to parse mint event response:", e);
             }
-        } catch (/** @type {any} */ error) {
-            console.warn("OpenTimestamps stamping failed:", error);
-            this.updateTimestampStatus("failed", null, null, error?.message || "Unknown error");
-        }
-
-
-        // Set initial status using action
-        this.setInitialStatus();
-        Uploader.queues.push(this);
-        Uploader.runQueue();
-        return this;
-    }
-
-    /**
-     * Upload OTS proof to server after file upload completes
-     */
-    async uploadOtsProof() {
-        if (!this.timestamp.bytes) {
-            console.warn("No OTS timestamp bytes to upload");
-            return;
-        }
-
-        try {
-            const otsUrl = this.url + "?ots";
-            const response = await fetch(otsUrl, {
-                method: "POST",
-                body: this.timestamp.bytes,
-            });
-
-            if (response.ok) {
-                console.log("OTS proof uploaded successfully");
-            } else {
-                console.warn("Failed to upload OTS proof:", response.statusText);
-            }
-        } catch (error) {
-            console.error("Error uploading OTS proof:", error);
-        }
-    }
-
-    ajax() {
-        const { url } = this;
-
-        this.uploaded = 0;
-        this.lastUptime = Date.now();
-
-        this.setUploading();
-
-        const ajax = new XMLHttpRequest();
-        ajax.upload.addEventListener("progress", (e) => this.progress(e), false);
-        ajax.addEventListener("readystatechange", () => {
-            if (ajax.readyState === 4) {
-                if (ajax.status >= 200 && ajax.status < 300) {
-                    this.complete();
-                } else {
-                    if (ajax.status != 0) {
-                        this.fail(`${ajax.status} ${ajax.statusText}`);
-                    }
-                }
-            }
-        });
-        ajax.addEventListener("error", () => this.fail(), false);
-        ajax.addEventListener("abort", () => this.fail(), false);
-        if (this.uploadOffset > 0) {
-            ajax.open("PATCH", url);
-            ajax.setRequestHeader("X-Update-Range", "append");
-            ajax.send(this.file.slice(this.uploadOffset));
+          }
+          this.complete();
         } else {
-            ajax.open("PUT", url);
-            ajax.send(this.file);
-            // setTimeout(() => ajax.abort(), 3000);
+          if (ajax.status != 0) {
+            this.fail(`${ajax.status} ${ajax.statusText}`);
+          }
         }
+      }
+    });
+    ajax.addEventListener("error", () => this.fail(), false);
+    ajax.addEventListener("abort", () => this.fail(), false);
+    if (this.uploadOffset > 0) {
+      ajax.open("PATCH", url);
+      ajax.setRequestHeader("X-Update-Range", "append");
+      ajax.send(this.file.slice(this.uploadOffset));
+    } else {
+      ajax.open("PUT", url);
+      ajax.send(this.file);
+      // setTimeout(() => ajax.abort(), 3000);
     }
+  }
 
-    async retry() {
-        const { url } = this;
-        let res = await fetch(url, {
-            method: "HEAD",
-        });
-        let uploadOffset = 0;
-        if (res.status == 200) {
-            let value = res.headers.get("content-length");
-            uploadOffset = parseInt(value || "0") || 0;
-        }
-        this.uploadOffset = uploadOffset;
-        this.ajax();
+  /**
+   * Handle mint event response from server
+   * @param {Object} mintEvent
+   * @param {string} mintEvent.filename
+   * @param {string} mintEvent.sha256
+   * @param {string} mintEvent.ots_base64
+   * @param {string} mintEvent.event_hash
+   * @param {string} mintEvent.issued_at
+   */
+  handleMintEventResponse(mintEvent) {
+    console.log("Received mint event:", mintEvent);
+
+    // Decode OTS from base64
+    const otsBytes = base64ToUint8Array(mintEvent.ots_base64);
+
+    // Update timestamp status
+    this.updateTimestampStatus("pending", otsBytes, new Date(), null);
+
+    // Download OTS file
+    const otsFilename = `${mintEvent.filename}.ots`;
+    download(otsFilename, otsBytes);
+
+    console.log(`OTS file downloaded: ${otsFilename}`);
+  }
+
+  async retry() {
+    const { url } = this;
+    let res = await fetch(url, {
+      method: "HEAD",
+    });
+    let uploadOffset = 0;
+    if (res.status == 200) {
+      let value = res.headers.get("content-length");
+      uploadOffset = parseInt(value || "0") || 0;
     }
+    this.uploadOffset = uploadOffset;
+    this.ajax();
+  }
 
-    /**
-     * @param {ProgressEvent} event
-     */
-    progress(event) {
-        const now = Date.now();
-        const speed =
-            ((event.loaded - this.uploaded) / (now - this.lastUptime)) * 1000;
-        const [speedValue, speedUnit] = formatFileSize(speed);
-        const speedText = `${speedValue} ${speedUnit}/s`;
-        const percent = ((event.loaded + this.uploadOffset) / this.file.size) * 100;
-        const progress = formatPercent(percent);
-        const duration = formatDuration((event.total - event.loaded) / speed);
+  /**
+   * @param {ProgressEvent} event
+   */
+  progress(event) {
+    const now = Date.now();
+    const speed =
+      ((event.loaded - this.uploaded) / (now - this.lastUptime)) * 1000;
+    const [speedValue, speedUnit] = formatFileSize(speed);
+    const speedText = `${speedValue} ${speedUnit}/s`;
+    const percent = ((event.loaded + this.uploadOffset) / this.file.size) * 100;
+    const progress = formatPercent(percent);
+    const duration = formatDuration((event.total - event.loaded) / speed);
 
-        // Use action to update state
-        this.updateProgress(event.loaded, percent, progress, speedText, duration);
+    // Use action to update state
+    this.updateProgress(event.loaded, percent, progress, speedText, duration);
 
-        this.lastUptime = now;
+    this.lastUptime = now;
+  }
+
+  complete() {
+    // Use action to update status
+    this.setComplete();
+    failUploaders.delete(this.idx);
+    Uploader.runnings--;
+    Uploader.runQueue();
+  }
+
+  /**
+   * @param {string} reason
+   */
+  fail(reason = "") {
+    // Use action to update status
+    this.setFailed(reason);
+
+    failUploaders.set(this.idx, this);
+    Uploader.runnings--;
+    Uploader.runQueue();
+  }
+
+  /**
+   * Check if timestamp has been confirmed on Bitcoin blockchain
+   * In a real implementation, this would query the OpenTimestamps servers
+   * @returns {boolean}
+   */
+  isTimestampConfirmed() {
+    // For demo purposes, simulate confirmation after upload is complete
+    // In production, this would check actual OpenTimestamps verification
+    return (
+      this.status === "complete" &&
+      this.timestamp.status === "pending" &&
+      !!this.timestamp.bytes
+    );
+  }
+
+  /**
+   * Get human-readable timestamp status
+   * @returns {string}
+   */
+  getTimestampStatusText() {
+    switch (this.timestamp.status) {
+      case "creating":
+        return "Creating timestamp proof...";
+      case "pending":
+        return "Waiting for Bitcoin confirmation";
+      case "confirmed":
+        return "Verified on Bitcoin blockchain";
+      case "failed":
+        return this.timestamp.error || "Timestamp creation failed";
+      default:
+        return "No timestamp";
     }
+  }
 
-    complete() {
-        // Use action to update status
-        this.setComplete();
-        failUploaders.delete(this.idx);
-        Uploader.runnings--;
-        Uploader.runQueue();
+  // MobX Actions
+  /**
+   * @param {number} loaded
+   * @param {number} percent
+   * @param {string} progressText
+   * @param {string} speedText
+   * @param {string} duration
+   */
+  updateProgress(loaded, percent, progressText, speedText, duration) {
+    this.uploaded = loaded;
+    this.status = "uploading";
+    this.statusReason = "";
+    this.progressValue = percent;
+    this.text.progress = progressText;
+    this.text.speed = speedText;
+    this.text.duration = duration;
+  }
 
-        // Upload OTS proof to server after file upload completes
-        this.uploadOtsProof();
+  setComplete() {
+    this.status = "complete";
+    this.statusReason = "";
+    this.progressValue = 100;
+    this.text.progress = "100%";
+    this.text.speed = "";
+    this.text.duration = "";
+  }
+
+  /**
+   * @param {string} reason
+   */
+  setFailed(reason) {
+    this.status = "failed";
+    this.statusReason = reason;
+    this.progressValue = 0;
+    this.text.progress = "";
+    this.text.speed = "";
+    this.text.duration = "";
+  }
+
+  /**
+   * @param {string} status
+   * @param {BodyInit | null} bytes
+   * @param {Date | null} created
+   * @param {null|string} error
+   */
+  updateTimestampStatus(status, bytes, created, error) {
+    this.timestamp.status = status;
+    this.timestamp.bytes = bytes;
+    this.timestamp.created = created;
+    this.timestamp.error = error;
+  }
+
+  setInitialStatus() {
+    this.status = "pending";
+    this.statusReason = "";
+    this.progressValue = 0;
+    this.text.progress = "";
+    this.text.speed = "";
+    this.text.duration = "";
+  }
+
+  setUploading() {
+    this.status = "uploading";
+    this.statusReason = "";
+    this.progressValue = 0;
+    this.text.progress = "";
+    this.text.speed = "";
+    this.text.duration = "";
+  }
+
+  // MobX Computed Properties
+  get isComplete() {
+    return this.status === "complete";
+  }
+
+  get isUploading() {
+    return this.status === "uploading";
+  }
+
+  get isFailed() {
+    return this.status === "failed";
+  }
+
+  get displayProgress() {
+    if (this.isUploading && this.text.progress) {
+      return `${this.text.progress} • ${this.text.speed}`;
     }
-
-    /**
-     * @param {string} reason
-     */
-    fail(reason = "") {
-        // Use action to update status
-        this.setFailed(reason);
-
-        failUploaders.set(this.idx, this);
-        Uploader.runnings--;
-        Uploader.runQueue();
+    if (this.isFailed && this.statusReason) {
+      return `Failed: ${this.statusReason}`;
     }
-
-    /**
-     * Check if timestamp has been confirmed on Bitcoin blockchain
-     * In a real implementation, this would query the OpenTimestamps servers
-     * @returns {boolean}
-     */
-    isTimestampConfirmed() {
-        // For demo purposes, simulate confirmation after upload is complete
-        // In production, this would check actual OpenTimestamps verification
-        return this.status === "complete" && this.timestamp.status === "pending" && !!this.timestamp.bytes;
-    }
-
-    /**
-     * Get human-readable timestamp status
-     * @returns {string}
-     */
-    getTimestampStatusText() {
-        switch (this.timestamp.status) {
-            case "creating":
-                return "Creating timestamp proof...";
-            case "pending":
-                return "Waiting for Bitcoin confirmation";
-            case "confirmed":
-                return "Verified on Bitcoin blockchain";
-            case "failed":
-                return this.timestamp.error || "Timestamp creation failed";
-            default:
-                return "No timestamp";
-        }
-    }
-
-    // MobX Actions
-    /**
-     * @param {number} loaded
-     * @param {number} percent
-     * @param {string} progressText
-     * @param {string} speedText
-     * @param {string} duration
-     */
-    updateProgress(loaded, percent, progressText, speedText, duration) {
-        this.uploaded = loaded;
-        this.status = "uploading";
-        this.statusReason = "";
-        this.progressValue = percent;
-        this.text.progress = progressText;
-        this.text.speed = speedText;
-        this.text.duration = duration;
-    }
-
-    setComplete() {
-        this.status = "complete";
-        this.statusReason = "";
-        this.progressValue = 100;
-        this.text.progress = "100%";
-        this.text.speed = "";
-        this.text.duration = "";
-    }
-
-    /**
-     * @param {string} reason
-     */
-    setFailed(reason) {
-        this.status = "failed";
-        this.statusReason = reason;
-        this.progressValue = 0;
-        this.text.progress = "";
-        this.text.speed = "";
-        this.text.duration = "";
-    }
-
-    /**
-     * @param {string} status
-     * @param {BodyInit | null} bytes
-     * @param {Date | null} created
-     * @param {null|string} error
-     */
-    updateTimestampStatus(status, bytes, created, error) {
-        this.timestamp.status = status;
-        this.timestamp.bytes = bytes;
-        this.timestamp.created = created;
-        this.timestamp.error = error;
-    }
-
-    setInitialStatus() {
-        this.status = "pending";
-        this.statusReason = "";
-        this.progressValue = 0;
-        this.text.progress = "";
-        this.text.speed = "";
-        this.text.duration = "";
-    }
-
-    setUploading() {
-        this.status = "uploading";
-        this.statusReason = "";
-        this.progressValue = 0;
-        this.text.progress = "";
-        this.text.speed = "";
-        this.text.duration = "";
-    }
-
-    // MobX Computed Properties
-    get isComplete() {
-        return this.status === "complete";
-    }
-
-    get isUploading() {
-        return this.status === "uploading";
-    }
-
-    get isFailed() {
-        return this.status === "failed";
-    }
-
-    get displayProgress() {
-        if (this.isUploading && this.text.progress) {
-            return `${this.text.progress} • ${this.text.speed}`;
-        }
-        if (this.isFailed && this.statusReason) {
-            return `Failed: ${this.statusReason}`;
-        }
-        return this.status;
-    }
+    return this.status;
+  }
 }
 
 Uploader.globalIdx = 0;
@@ -445,35 +401,35 @@ Uploader.auth = false;
 Uploader.queues = [];
 
 Uploader.runQueue = async () => {
-    if (Uploader.runnings >= DUFS_MAX_UPLOADINGS) return;
-    if (Uploader.queues.length == 0) return;
-    Uploader.runnings++;
-    let uploader = Uploader.queues.shift();
-    if (!uploader) return;
-    if (!Uploader.auth) {
-        Uploader.auth = true;
-        try {
-            await checkAuth();
-        } catch {
-            Uploader.auth = false;
-        }
+  if (Uploader.runnings >= DUFS_MAX_UPLOADINGS) return;
+  if (Uploader.queues.length == 0) return;
+  Uploader.runnings++;
+  let uploader = Uploader.queues.shift();
+  if (!uploader) return;
+  if (!Uploader.auth) {
+    Uploader.auth = true;
+    try {
+      await checkAuth();
+    } catch {
+      Uploader.auth = false;
     }
-    uploader.ajax();
+  }
+  uploader.ajax();
 };
 
 /**
  * Show warning modal when user attempts upload in non-secure context
  */
 function showInsecureContextWarning() {
-    // Check if modal already exists
-    if (document.getElementById('insecure-context-modal')) {
-        return;
-    }
+  // Check if modal already exists
+  if (document.getElementById("insecure-context-modal")) {
+    return;
+  }
 
-    // Create modal overlay
-    const modal = document.createElement('div');
-    modal.id = 'insecure-context-modal';
-    modal.style.cssText = `
+  // Create modal overlay
+  const modal = document.createElement("div");
+  modal.id = "insecure-context-modal";
+  modal.style.cssText = `
         position: fixed;
         top: 0;
         left: 0;
@@ -487,9 +443,9 @@ function showInsecureContextWarning() {
         padding: 20px;
     `;
 
-    // Create modal content
-    const modalContent = document.createElement('div');
-    modalContent.style.cssText = `
+  // Create modal content
+  const modalContent = document.createElement("div");
+  modalContent.style.cssText = `
         background-color: #fff;
         border-radius: 8px;
         padding: 24px;
@@ -497,8 +453,8 @@ function showInsecureContextWarning() {
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
     `;
 
-    // Create modal HTML
-    modalContent.innerHTML = `
+  // Create modal HTML
+  modalContent.innerHTML = `
         <div style="margin-bottom: 16px;">
             <h3 style="margin: 0 0 12px 0; color: #d32f2f; font-size: 18px;">
                 ⚠️ Secure Context Required
@@ -534,28 +490,28 @@ function showInsecureContextWarning() {
         </div>
     `;
 
-    modal.appendChild(modalContent);
-    document.body.appendChild(modal);
+  modal.appendChild(modalContent);
+  document.body.appendChild(modal);
 
-    // Add event listeners
-    const closeBtn = document.getElementById('insecure-modal-close');
-    const redirectBtn = document.getElementById('insecure-modal-redirect');
+  // Add event listeners
+  const closeBtn = document.getElementById("insecure-modal-close");
+  const redirectBtn = document.getElementById("insecure-modal-redirect");
 
-    const closeModal = () => {
-        modal.remove();
-    };
+  const closeModal = () => {
+    modal.remove();
+  };
 
-    closeBtn?.addEventListener('click', closeModal);
-    modal.addEventListener('click', (e) => {
-        if (e.target === modal) {
-            closeModal();
-        }
-    });
+  closeBtn?.addEventListener("click", closeModal);
+  modal.addEventListener("click", (e) => {
+    if (e.target === modal) {
+      closeModal();
+    }
+  });
 
-    redirectBtn?.addEventListener('click', () => {
-        const httpsUrl = window.location.href.replace(/^http:/, 'https:');
-        window.location.href = httpsUrl;
-    });
+  redirectBtn?.addEventListener("click", () => {
+    const httpsUrl = window.location.href.replace(/^http:/, "https:");
+    window.location.href = httpsUrl;
+  });
 }
 
 Object.assign(window, { Uploader });
