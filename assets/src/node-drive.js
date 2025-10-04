@@ -15,7 +15,7 @@ import {
  * @param {Object} params
  * @param {string} params.otsProofBase64 - Base64-encoded OTS proof
  * @param {string} params.artifactSha256 - SHA256 hash of the artifact
- * @returns {Promise<{success: true, results: {bitcoin: {timestamp: number, height: number}}} | {success: false, error: string}>}
+ * @returns {Promise<{success: true, results: {bitcoin: {timestamp: number, height: number}}, sha256_hex?: string} | {success: false, error: string, sha256_hex?: string}>}
  */
 export async function getStampStatus({ otsProofBase64, artifactSha256 }) {
   try {
@@ -101,6 +101,10 @@ export class Uploader {
     // SHA256 hash (computed after hashing)
     this.sha256 = "";
 
+    // Stamp status from server (populated after upload completes)
+    /** @type {{success: boolean, results?: {bitcoin: {timestamp: number, height: number}}, error?: string, sha256_hex?: string} | null} */
+    this.stamp_status = null;
+
     // Make this instance observable
     makeAutoObservable(this);
 
@@ -151,7 +155,6 @@ export class Uploader {
           if (contentType && contentType.includes("application/json")) {
             try {
               const mintEvent = JSON.parse(ajax.responseText);
-              debugger;
               this.handleMintEventResponse(mintEvent);
             } catch (e) {
               console.warn("Failed to parse mint event response:", e);
@@ -186,6 +189,7 @@ export class Uploader {
    * @param {string} mintEvent.ots_base64
    * @param {string} mintEvent.event_hash
    * @param {string} mintEvent.issued_at
+   * @param {{success: boolean, results?: {bitcoin: {timestamp: number, height: number}}, error?: string, sha256_hex?: string}} [mintEvent.stamp_status]
    */
   handleMintEventResponse(mintEvent) {
     console.log("Received mint event:", mintEvent);
@@ -195,6 +199,11 @@ export class Uploader {
 
     // Update timestamp status
     this.updateTimestampStatus("pending", otsBytes, new Date(), null);
+
+    // Store stamp_status on the uploader for display in upload table
+    if (mintEvent.stamp_status) {
+      this.stamp_status = mintEvent.stamp_status;
+    }
 
     // Download OTS file
     const otsFilename = `${mintEvent.filename}.ots`;

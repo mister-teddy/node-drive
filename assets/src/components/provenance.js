@@ -1,7 +1,6 @@
 // @ts-check
 
 import { useState, useEffect, createElement } from "../esm-imports.js";
-import { getStampStatus } from "../node-drive.js";
 import { copyToClipboard, formatHashShort } from "../utils.js";
 
 /**
@@ -9,23 +8,22 @@ import { copyToClipboard, formatHashShort } from "../utils.js";
  * @param {{
  *   fileName: string,
  *   defaultMode?: "full" | "summary",
- *   isDir?: boolean
+ *   isDir?: boolean,
+ *   stampStatus?: {success: boolean, results?: {bitcoin: {timestamp: number, height: number}}, error?: string, sha256_hex?: string}
  * }} props
  */
 export default function Provenance({
   fileName,
   defaultMode = "full",
   isDir = false,
+  stampStatus,
 }) {
   const [copiedHash, setCopiedHash] = useState(null);
   const [manifest, setManifest] = useState(/** @type {any} */ (null));
   const [isLoading, setIsLoading] = useState(false);
   const [isExpanded, setIsExpanded] = useState(defaultMode === "full");
-  /**
-   * @type {[Awaited<ReturnType<typeof getStampStatus>>, Function]}
-   */
-  const [stampStatus, setStampStatus] = useState("verifying");
-  const isPending = typeof stampStatus === "string";
+  const isPending =
+    typeof stampStatus === "string" || (stampStatus && !stampStatus.success);
 
   /**
    * Construct URL for the file
@@ -57,16 +55,6 @@ export default function Provenance({
       if (response.ok) {
         const manifestData = await response.json();
         setManifest(manifestData);
-        if (manifestData.events.length) {
-          const latestEvent =
-            manifestData.events[manifestData.events.length - 1];
-          setStampStatus(
-            await getStampStatus({
-              otsProofBase64: latestEvent.ots_proof_b64,
-              artifactSha256: latestEvent.artifact_sha256_hex,
-            })
-          );
-        }
       }
     } catch (error) {
       console.error(`Failed to fetch provenance for ${fileName}:`, error);
@@ -75,12 +63,12 @@ export default function Provenance({
     }
   };
 
-  // Fetch provenance data on mount
+  // Fetch provenance data only when expanded (full view opened)
   useEffect(() => {
-    if (!isDir) {
+    if (!isDir && isExpanded && !manifest) {
       fetchProvenanceData();
     }
-  }, [fileName, isDir]);
+  }, [fileName, isDir, isExpanded]);
 
   /**
    * @param {string} text
@@ -133,7 +121,11 @@ export default function Provenance({
       );
     }
 
-    if (!manifest || !manifest.events || manifest.events.length === 0) {
+    // Show stamp if we have stampStatus (even without manifest)
+    if (
+      !stampStatus &&
+      (!manifest || !manifest.events || manifest.events.length === 0)
+    ) {
       return createElement(
         "span",
         {
@@ -145,8 +137,6 @@ export default function Provenance({
         "—"
       );
     }
-
-    const latestEvent = manifest.events[manifest.events.length - 1];
 
     return createElement(
       "div",
@@ -206,8 +196,8 @@ export default function Provenance({
             },
             isPending ? "Pending" : "Verified"
           ),
-          // SHA256 hash (shortened)
-          !!manifest.artifact?.sha256_hex &&
+          // SHA256 hash (shortened) - prefer stampStatus, fallback to manifest
+          (stampStatus?.sha256_hex || manifest?.artifact?.sha256_hex) &&
             createElement(
               "kbd",
               {
@@ -221,10 +211,10 @@ export default function Provenance({
                   userSelect: "all",
                 },
               },
-              formatHashShort(manifest.artifact.sha256_hex) + "•"
+              formatHashShort(stampStatus?.sha256_hex || manifest?.artifact?.sha256_hex || "") + "•"
             ),
           // Bitcoin attestation info
-          stampStatus.success &&
+          stampStatus?.success &&
             createElement(
               "div",
               {
@@ -236,9 +226,9 @@ export default function Provenance({
                 },
               },
               `Bitcoin block ${
-                stampStatus.results.bitcoin.height
+                stampStatus.results?.bitcoin.height
               } attests existence as of ${new Date(
-                stampStatus.results.bitcoin.timestamp * 1000
+                (stampStatus.results?.bitcoin.timestamp ?? 0) * 1000
               ).toLocaleDateString(undefined, {
                 year: "numeric",
                 month: "short",
@@ -481,11 +471,11 @@ export default function Provenance({
                           fontSize: "9px",
                         },
                       },
-                      stampStatus.success
+                      stampStatus?.success
                         ? `Bitcoin block ${
-                            stampStatus.results.bitcoin.height
+                            stampStatus.results?.bitcoin.height
                           } attests existence as of ${new Date(
-                            stampStatus.results.bitcoin.timestamp * 1000
+                            (stampStatus.results?.bitcoin.timestamp ?? 0) * 1000
                           ).toLocaleDateString(undefined, {
                             year: "numeric",
                             month: "short",

@@ -15,6 +15,7 @@ import Provenance from "./provenance.js";
 export default function UploadTable({ DATA }) {
   const queue = useStore((store) => {
     const queueSnapshot = store?.uploadQueue.map((uploader) => ({
+      idx: uploader.idx,
       name: uploader.name,
       file: uploader.file,
       status: uploader.status,
@@ -25,17 +26,15 @@ export default function UploadTable({ DATA }) {
       durationText: uploader.text?.duration,
       sha256: uploader.sha256,
       timestamp: uploader.timestamp,
-      bitcoinBlock: uploader.bitcoinBlock,
-      bitcoinConfirmed: uploader.bitcoinConfirmed,
+      stamp_status: uploader.stamp_status,
       // Computed properties (if needed)
       isComplete: uploader.isComplete,
       isUploading: uploader.isUploading,
       isFailed: uploader.isFailed,
-      displayProgress: uploader.displayProgress
+      displayProgress: uploader.displayProgress,
     }));
     return queueSnapshot;
-  })
-
+  });
 
   /**
    * @param {number} bytes
@@ -119,7 +118,7 @@ export default function UploadTable({ DATA }) {
           color: "#333",
         },
       },
-      `Uploading ${queue.length} file${queue.length !== 1 ? 's' : ''}`,
+      `Uploading ${queue.length} file${queue.length !== 1 ? "s" : ""}`
     ),
     createElement(
       "div",
@@ -129,14 +128,16 @@ export default function UploadTable({ DATA }) {
         const status = getStatus(uploader);
         const statusIcon = getStatusIcon(status);
         const statusColor = getStatusColor(status);
-        const fileName = uploader?.name || uploader?.file?.name || "Unknown file";
+        const fileName =
+          uploader?.name || uploader?.file?.name || "Unknown file";
 
         return createElement(
           "div",
           {
             key: uploader?.idx || index,
             style: {
-              borderBottom: index < queue.length - 1 ? "1px solid #f8f8f8" : "none",
+              borderBottom:
+                index < queue.length - 1 ? "1px solid #f8f8f8" : "none",
               fontSize: "14px",
             },
           },
@@ -168,7 +169,7 @@ export default function UploadTable({ DATA }) {
                   flexShrink: 0,
                 },
               },
-              statusIcon,
+              statusIcon
             ),
             createElement(
               "div",
@@ -186,7 +187,7 @@ export default function UploadTable({ DATA }) {
                     whiteSpace: "nowrap",
                   },
                 },
-                fileName,
+                fileName
               ),
               // File size and status
               createElement(
@@ -204,22 +205,25 @@ export default function UploadTable({ DATA }) {
                 formatFileSize(uploader?.file?.size || 0),
                 uploader?.progressText && uploader.progressText !== status
                   ? createElement(
-                    "span",
-                    { style: { color: statusColor } },
-                    `• ${uploader.progressText}`,
-                  )
-                  : null,
+                      "span",
+                      { style: { color: statusColor } },
+                      `• ${uploader.progressText}`
+                    )
+                  : null
               ),
               // Digital fingerprint section
-              status === "complete" ? createElement(Provenance, {
-                fileName: fileName,
-                defaultMode: "summary",
-                isDir: false,
-              }) : null,
-            ),
-          ),
+              status === "complete"
+                ? createElement(Provenance, {
+                    fileName: fileName,
+                    defaultMode: "summary",
+                    isDir: false,
+                    stampStatus: uploader?.stamp_status,
+                  })
+                : null
+            )
+          )
         );
-      }),
-    ),
+      })
+    )
   );
 }

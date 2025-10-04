@@ -1222,12 +1222,38 @@ impl Server {
         // Convert result to JSON response matching JS library format
         // The JS library returns: {bitcoin: {timestamp: 1234, height: 5678}, ...}
         let response = match result {
-            Ok(verification_results) => {
+            Ok(verification_response) => {
+                // If timestamp was upgraded, save it back to the database
+                if let Some(ref upgraded_ots_b64) = verification_response.upgraded_ots_b64 {
+                    // Get manifest and update the latest event's OTS proof
+                    if let Ok(Some(manifest)) =
+                        self.provenance_db.get_manifest(&verify_req.artifact_sha256)
+                    {
+                        if let Some((artifact_id, _)) = self
+                            .provenance_db
+                            .get_artifact(&verify_req.artifact_sha256)
+                            .ok()
+                            .flatten()
+                        {
+                            let event_index = manifest.events.len().saturating_sub(1) as u32;
+                            let _ = self.provenance_db.update_ots_proof(
+                                artifact_id,
+                                event_index,
+                                upgraded_ots_b64,
+                            );
+                            info!(
+                                "Saved upgraded OTS proof for artifact {}",
+                                &verify_req.artifact_sha256
+                            );
+                        }
+                    }
+                }
+
                 // Group results by chain (in case there are multiple chains)
                 // Take the earliest attestation for each chain
                 let mut results_map: HashMap<String, ChainResult> = HashMap::new();
 
-                for vr in verification_results {
+                for vr in verification_response.results {
                     let chain_result = ChainResult {
                         timestamp: vr.timestamp,
                         height: vr.height,
@@ -1702,12 +1728,98 @@ impl Server {
         };
         let rel_path = path.strip_prefix(base_path)?;
         let name = normalize_path(rel_path);
+
+        // Compute stamp status for files (not directories)
+        let stamp_status = if matches!(path_type, PathType::File | PathType::SymlinkFile) {
+            self.compute_stamp_status(path).await
+        } else {
+            None
+        };
+
         Ok(Some(PathItem {
             path_type,
             name,
             mtime,
             size,
+            stamp_status,
         }))
+    }
+
+    async fn compute_stamp_status(&self, path: &Path) -> Option<StampStatus> {
+        use crate::ots_stamper;
+
+        // Compute file hash
+        let file_data = tokio::fs::read(path).await.ok()?;
+        let mut hasher = Sha256::new();
+        hasher.update(&file_data);
+        let hash_bytes = hasher.finalize();
+        let sha256_hex = hex::encode(hash_bytes);
+
+        // Get manifest from database
+        let manifest = match self.provenance_db.get_manifest(&sha256_hex).ok()? {
+            Some(m) => m,
+            None => {
+                return None;
+            }
+        };
+
+        // Get the latest event
+        if manifest.events.is_empty() {
+            return None;
+        }
+
+        let latest_event = &manifest.events[manifest.events.len() - 1];
+
+        // Verify the OTS proof
+        match ots_stamper::verify_timestamp(
+            &latest_event.ots_proof_b64,
+            &latest_event.artifact_sha256_hex,
+        )
+        .await
+        {
+            Ok(verification_response) => {
+                // If timestamp was upgraded, save it back to the database
+                if let Some(ref upgraded_ots_b64) = verification_response.upgraded_ots_b64 {
+                    if let Some((artifact_id, _)) =
+                        self.provenance_db.get_artifact(&sha256_hex).ok().flatten()
+                    {
+                        let event_index = manifest.events.len().saturating_sub(1) as u32;
+                        let _ = self.provenance_db.update_ots_proof(
+                            artifact_id,
+                            event_index,
+                            upgraded_ots_b64,
+                        );
+                    }
+                }
+
+                // Build results map matching the verify endpoint format
+                let mut results_map = serde_json::Map::new();
+
+                for vr in verification_response.results {
+                    let chain_result = serde_json::json!({
+                        "timestamp": vr.timestamp,
+                        "height": vr.height,
+                    });
+                    results_map.insert(vr.chain, chain_result);
+                }
+
+                Some(StampStatus {
+                    success: true,
+                    results: Some(serde_json::Value::Object(results_map)),
+                    error: None,
+                    sha256_hex: Some(sha256_hex.clone()),
+                })
+            }
+            Err(_) => {
+                // Verification failed or pending
+                Some(StampStatus {
+                    success: false,
+                    results: None,
+                    error: None, // No error means it's just pending
+                    sha256_hex: Some(sha256_hex),
+                })
+            }
+        }
     }
 
     async fn create_mint_event(&self, path: &Path) -> Result<MintEventResponse> {
@@ -1735,8 +1847,25 @@ impl Server {
         // Check if mint event already exists
         let next_index = self.provenance_db.get_next_event_index(artifact_id)?;
         if next_index > 0 {
-            // Artifact already has events, skip mint
-            return Err(anyhow!("Mint event already exists for this artifact"));
+            // Artifact already has events, return existing mint event
+            let manifest = self
+                .provenance_db
+                .get_manifest(&sha256_hex)?
+                .ok_or_else(|| anyhow!("Manifest not found after checking event index"))?;
+
+            let first_event = &manifest.events[0];
+
+            // Compute stamp status for existing event
+            let stamp_status = self.compute_stamp_status(path).await;
+
+            return Ok(MintEventResponse {
+                filename: file_name,
+                sha256: sha256_hex,
+                ots_base64: first_event.ots_proof_b64.clone(),
+                event_hash: first_event.event_hash_hex.clone(),
+                issued_at: first_event.issued_at.clone(),
+                stamp_status,
+            });
         }
 
         // TODO: In production, these would come from the authenticated user
@@ -1805,10 +1934,16 @@ impl Server {
 
         Ok(MintEventResponse {
             filename: file_name,
-            sha256: sha256_hex,
+            sha256: sha256_hex.clone(),
             ots_base64: ots_proof_b64,
             event_hash: event_hash_hex,
             issued_at,
+            stamp_status: Some(StampStatus {
+                success: false,
+                results: None,
+                error: None, // No error, just pending Bitcoin confirmation
+                sha256_hex: Some(sha256_hex),
+            }),
         })
     }
 }
@@ -1820,6 +1955,8 @@ pub struct MintEventResponse {
     pub ots_base64: String,
     pub event_hash: String,
     pub issued_at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stamp_status: Option<StampStatus>,
 }
 
 #[derive(Debug, Serialize, PartialEq)]
@@ -1844,12 +1981,25 @@ pub struct IndexData {
     pub paths: Vec<PathItem>,
 }
 
-#[derive(Debug, Serialize, Eq, PartialEq, Ord, PartialOrd)]
+#[derive(Debug, Serialize)]
 pub struct PathItem {
     pub path_type: PathType,
     pub name: String,
     pub mtime: u64,
     pub size: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stamp_status: Option<StampStatus>,
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct StampStatus {
+    pub success: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub results: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sha256_hex: Option<String>,
 }
 
 impl PathItem {

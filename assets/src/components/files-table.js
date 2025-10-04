@@ -17,6 +17,7 @@ import Provenance from "./provenance.js";
  * @property {string} [sha256] - SHA-256 hash of the file
  * @property {Object} [provenance] - Provenance data
  * @property {Array<Object>} [provenance.events] - Array of provenance events
+ * @property {{success: boolean, results?: {bitcoin: {timestamp: number, height: number}}, error?: string, sha256_hex?: string}} [stamp_status] - OTS verification status
  */
 
 /**
@@ -70,14 +71,15 @@ export default function FilesTable({ DATA }) {
 
   /**
    * Render verification stamps for a file
-   * @param {string} fileName
+   * @param {PathItem} file
    * @returns {import("../esm-imports.js").ReactElement | null}
    */
-  const renderVerificationStamps = (fileName) => {
+  const renderVerificationStamps = (file) => {
     return createElement(Provenance, {
-      fileName: fileName,
+      fileName: file.name,
       defaultMode: "summary",
       isDir: false,
+      stampStatus: file.stamp_status,
     });
   };
 
@@ -284,7 +286,7 @@ export default function FilesTable({ DATA }) {
             createElement(
               "div",
               null,
-              isDir ? createElement("span", { style: { color: "#999", fontSize: "11px" } }, "—") : renderVerificationStamps(file.name),
+              isDir ? createElement("span", { style: { color: "#999", fontSize: "11px" } }, "—") : renderVerificationStamps(file),
             ),
             // Actions
             createElement(

@@ -35,6 +35,13 @@ pub struct VerificationResult {
     pub height: u64,
 }
 
+/// Complete verification response including upgraded OTS if applicable
+#[derive(Debug)]
+pub struct VerificationResponse {
+    pub results: Vec<VerificationResult>,
+    pub upgraded_ots_b64: Option<String>,
+}
+
 /// Creates an OpenTimestamps proof by contacting calendar servers
 pub async fn create_timestamp(digest: &[u8]) -> Result<Vec<u8>> {
     // Add random nonce (16 bytes) to the digest
@@ -504,7 +511,7 @@ async fn verify_bitcoin_attestation(height: u64, step: &Step) -> Result<Verifica
 pub async fn verify_timestamp(
     ots_proof_b64: &str,
     artifact_sha256_hex: &str,
-) -> Result<Vec<VerificationResult>> {
+) -> Result<VerificationResponse> {
     // Decode base64 OTS proof
     let ots_bytes = base64::engine::general_purpose::STANDARD
         .decode(ots_proof_b64)
@@ -529,10 +536,16 @@ pub async fn verify_timestamp(
 
     // Try to upgrade the timestamp by fetching new attestations from calendar servers
     // This is equivalent to the JS library's upgradeTimestamp call
+    let mut upgraded_ots_b64 = None;
     match upgrade_timestamp(&mut detached_ots).await {
         Ok(upgraded) => {
             if upgraded {
                 info!("Timestamp upgraded with new attestations from calendar servers");
+                // Serialize the upgraded timestamp to base64
+                let mut upgraded_bytes = Vec::new();
+                detached_ots.to_writer(&mut upgraded_bytes)?;
+                upgraded_ots_b64 =
+                    Some(base64::engine::general_purpose::STANDARD.encode(&upgraded_bytes));
             }
         }
         Err(e) => {
@@ -580,5 +593,8 @@ pub async fn verify_timestamp(
         return Err(anyhow!("No verified attestations found"));
     }
 
-    Ok(results)
+    Ok(VerificationResponse {
+        results,
+        upgraded_ots_b64,
+    })
 }
