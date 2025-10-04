@@ -15,7 +15,7 @@ import {
  * @param {Object} params
  * @param {string} params.otsProofBase64 - Base64-encoded OTS proof
  * @param {string} params.artifactSha256 - SHA256 hash of the artifact
- * @returns {Promise<'pending-attestation' | 'cannot-verify' | 'unknown-attestation-type' | { bitcoin: { height: number } }>}
+ * @returns {Promise<{success: true, results: {bitcoin: {timestamp: number, height: number}}} | {success: false, error: string}>}
  */
 export async function getStampStatus({ otsProofBase64, artifactSha256 }) {
   try {
@@ -30,16 +30,11 @@ export async function getStampStatus({ otsProofBase64, artifactSha256 }) {
       }),
     });
 
-    if (!response.ok) {
-      return "cannot-verify";
-    }
-
-    debugger;
-    const { attestations } = await response.json();
-    return attestations[0];
+    const data = await response.json();
+    return data;
   } catch (error) {
     console.error("OTS verification error:", error);
-    return "cannot-verify";
+    return { success: false, error: "Cannot reach local server" };
   }
 }
 

@@ -224,7 +224,7 @@ export default function Provenance({
               formatHashShort(manifest.artifact.sha256_hex) + "•"
             ),
           // Bitcoin attestation info
-          typeof stampStatus === "object" &&
+          stampStatus.success &&
             createElement(
               "div",
               {
@@ -236,9 +236,9 @@ export default function Provenance({
                 },
               },
               `Bitcoin block ${
-                stampStatus.bitcoin.height
+                stampStatus.results.bitcoin.height
               } attests existence as of ${new Date(
-                stampStatus.bitcoin.timestamp * 1000
+                stampStatus.results.bitcoin.timestamp * 1000
               ).toLocaleDateString(undefined, {
                 year: "numeric",
                 month: "short",
@@ -481,11 +481,11 @@ export default function Provenance({
                           fontSize: "9px",
                         },
                       },
-                      typeof stampStatus === "object"
+                      stampStatus.success
                         ? `Bitcoin block ${
-                            stampStatus.bitcoin.height
+                            stampStatus.results.bitcoin.height
                           } attests existence as of ${new Date(
-                            stampStatus.bitcoin.timestamp * 1000
+                            stampStatus.results.bitcoin.timestamp * 1000
                           ).toLocaleDateString(undefined, {
                             year: "numeric",
                             month: "short",

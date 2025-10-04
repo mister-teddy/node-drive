@@ -384,15 +384,10 @@ pub async fn upgrade_timestamp(detached_ots: &mut DetachedTimestampFile) -> Resu
 
     // Try to upgrade each pending attestation
     for (commitment, calendar_url) in pending {
-        // Skip if not in default calendar list
-        // if !DEFAULT_CALENDAR_URLS.contains(&calendar_url.as_str()) {
-        //     continue;
-        // }
-
         match query_calendar_for_upgrade(&calendar_url, &commitment).await {
             Ok(upgraded_timestamp) => {
-                detached_ots.timestamp = upgraded_timestamp.clone(); // Ensure we have the latest timestamp
-                                                                     // Try to merge the upgraded timestamp
+                // Merge the upgraded timestamp into the original
+                // This preserves all existing attestations while adding new ones
                 if merge_timestamps(
                     &mut detached_ots.timestamp.first_step,
                     &upgraded_timestamp.first_step,
@@ -467,14 +462,19 @@ async fn verify_bitcoin_attestation(height: u64, step: &Step) -> Result<Verifica
 
     // Find the digest at the Bitcoin attestation point
     if let Some(attested_digest) = find_bitcoin_attestation_digest(step, height) {
-        // Decode the merkle root from hex
-        let merkle_root = hex::decode(&block.merkle_root)
+        // Decode the merkle root from hex (Esplora returns it in display/big-endian format)
+        let mut merkle_root = hex::decode(&block.merkle_root)
             .map_err(|e| anyhow!("Failed to decode merkle root: {}", e))?;
+
+        // Bitcoin uses little-endian byte order internally, but Esplora API returns big-endian hex
+        // The OTS attestation digest is in little-endian (internal) format
+        // So we need to reverse the merkle root bytes from the API to match
+        merkle_root.reverse();
 
         // Verify that the attested digest matches the merkle root
         if attested_digest != merkle_root {
             return Err(anyhow!(
-                "Merkle root mismatch! Expected: {}, Got: {}",
+                "Merkle root mismatch! Expected (little-endian): {}, Got: {}",
                 hex::encode(&merkle_root),
                 hex::encode(&attested_digest)
             ));
