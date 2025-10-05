@@ -1823,7 +1823,10 @@ impl Server {
     }
 
     async fn create_mint_event(&self, path: &Path) -> Result<MintEventResponse> {
-        use crate::provenance::{compute_event_hash, Actors, EventAction, Signatures};
+        use crate::provenance::{
+            compute_event_hash, sign_event_hash, verify_event, Actors, Event, EventAction,
+            Signatures, SERVER_PRIVATE_KEY_HEX, SERVER_PUBLIC_KEY_HEX,
+        };
 
         // Read file and compute SHA-256 hash
         let file_data = tokio::fs::read(path).await?;
@@ -1868,26 +1871,16 @@ impl Server {
             });
         }
 
-        // TODO: In production, these would come from the authenticated user
-        // For now, use placeholder values
-        let creator_pubkey = "0000000000000000000000000000000000000000000000000000000000000000";
-        let creator_signature = "0000000000000000000000000000000000000000000000000000000000000000";
-
+        // Use server's static keypair for signing
         let actors = Actors {
-            creator_pubkey_hex: Some(creator_pubkey.to_string()),
+            creator_pubkey_hex: Some(SERVER_PUBLIC_KEY_HEX.to_string()),
             prev_owner_pubkey_hex: None,
             new_owner_pubkey_hex: None,
         };
 
-        let signatures = Signatures {
-            creator_sig_hex: Some(creator_signature.to_string()),
-            prev_owner_sig_hex: None,
-            new_owner_sig_hex: None,
-        };
-
         let issued_at = chrono::Utc::now().to_rfc3339();
 
-        // Compute event hash
+        // Compute canonical event hash
         let event_hash_hex = compute_event_hash(
             0,
             &EventAction::Mint,
@@ -1896,6 +1889,16 @@ impl Server {
             &actors,
             &issued_at,
         );
+
+        // Sign the event hash with server's private key
+        let creator_signature = sign_event_hash(&event_hash_hex, SERVER_PRIVATE_KEY_HEX)
+            .map_err(|e| anyhow!("Failed to sign event: {}", e))?;
+
+        let signatures = Signatures {
+            creator_sig_hex: Some(creator_signature),
+            prev_owner_sig_hex: None,
+            new_owner_sig_hex: None,
+        };
 
         // Generate real OpenTimestamps proof using our Rust implementation
         let digest =
@@ -1926,11 +1929,39 @@ impl Server {
             signatures: &signatures,
         })?;
 
-        info!(
-            "Created mint event for {} ({})",
-            file_name,
-            &sha256_hex[..8]
-        );
+        // Verify the event we just created
+        let created_event = Event {
+            event_type: "provenance.event/v1".to_string(),
+            index: 0,
+            action: EventAction::Mint,
+            artifact_sha256_hex: sha256_hex.clone(),
+            prev_event_hash_hex: None,
+            actors: actors.clone(),
+            issued_at: issued_at.clone(),
+            event_hash_hex: event_hash_hex.clone(),
+            signatures: signatures.clone(),
+            ots_proof_b64: ots_proof_b64.clone(),
+        };
+
+        match verify_event(&created_event) {
+            Ok(true) => {
+                info!(
+                    "Created and verified mint event for {} ({})",
+                    file_name,
+                    &sha256_hex[..8]
+                );
+            }
+            Ok(false) => {
+                warn!(
+                    "Mint event verification failed for {} ({})",
+                    file_name,
+                    &sha256_hex[..8]
+                );
+            }
+            Err(e) => {
+                warn!("Error verifying mint event for {}: {}", file_name, e);
+            }
+        }
 
         Ok(MintEventResponse {
             filename: file_name,

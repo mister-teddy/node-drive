@@ -4,6 +4,13 @@ use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
+/// Static server keypair for signing (to be replaced with proper key management later)
+/// This is a demo keypair - in production, use a securely stored key
+pub const SERVER_PRIVATE_KEY_HEX: &str =
+    "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+pub const SERVER_PUBLIC_KEY_HEX: &str =
+    "02506bc1dc099358e5137292f4efdd57e400f29ba5132aa5d12b18dac1c1f6aaba";
+
 /// Provenance manifest following provenance.manifest/v1 spec
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Manifest {
@@ -442,7 +449,25 @@ impl ProvenanceDb {
     }
 }
 
+/// Canonical event representation (excluding signature, hash, and OTS proof)
+#[derive(Debug, Serialize)]
+struct CanonicalEvent {
+    #[serde(rename = "type")]
+    event_type: String,
+    index: u32,
+    action: String,
+    artifact_sha256_hex: String,
+    prev_event_hash_hex: Option<String>,
+    actors: serde_json::Value,
+    issued_at: String,
+}
+
 /// Compute event hash according to spec (canonical event excluding signatures, ots_proof_b64, event_hash_hex)
+///
+/// This creates a deterministic, canonical JSON representation by:
+/// 1. Including only core event fields (excluding signatures, hash, and OTS proof)
+/// 2. Serializing to JSON with sorted keys
+/// 3. Hashing the resulting JSON string
 pub fn compute_event_hash(
     index: u32,
     action: &EventAction,
@@ -453,33 +478,219 @@ pub fn compute_event_hash(
 ) -> String {
     use sha2::{Digest, Sha256};
 
-    let mut hasher = Sha256::new();
+    // Convert action to lowercase string
+    let action_str = match action {
+        EventAction::Mint => "mint",
+        EventAction::Transfer => "transfer",
+    };
 
-    // Build canonical representation
-    hasher.update(format!("index:{}", index).as_bytes());
-    hasher.update(format!("action:{:?}", action).as_bytes());
-    hasher.update(format!("artifact_sha256_hex:{}", artifact_sha256_hex).as_bytes());
-
-    if let Some(prev) = prev_event_hash_hex {
-        hasher.update(format!("prev_event_hash_hex:{}", prev).as_bytes());
-    } else {
-        hasher.update(b"prev_event_hash_hex:null");
-    }
-
+    // Build actors JSON with sorted keys
+    let mut actors_map = serde_json::Map::new();
     if let Some(ref creator) = actors.creator_pubkey_hex {
-        hasher.update(format!("creator_pubkey_hex:{}", creator).as_bytes());
-    }
-    if let Some(ref prev_owner) = actors.prev_owner_pubkey_hex {
-        hasher.update(format!("prev_owner_pubkey_hex:{}", prev_owner).as_bytes());
+        actors_map.insert(
+            "creator_pubkey_hex".to_string(),
+            serde_json::Value::String(creator.clone()),
+        );
     }
     if let Some(ref new_owner) = actors.new_owner_pubkey_hex {
-        hasher.update(format!("new_owner_pubkey_hex:{}", new_owner).as_bytes());
+        actors_map.insert(
+            "new_owner_pubkey_hex".to_string(),
+            serde_json::Value::String(new_owner.clone()),
+        );
+    }
+    if let Some(ref prev_owner) = actors.prev_owner_pubkey_hex {
+        actors_map.insert(
+            "prev_owner_pubkey_hex".to_string(),
+            serde_json::Value::String(prev_owner.clone()),
+        );
     }
 
-    hasher.update(format!("issued_at:{}", issued_at).as_bytes());
+    // Create canonical event
+    let canonical = CanonicalEvent {
+        event_type: "provenance.event/v1".to_string(),
+        index,
+        action: action_str.to_string(),
+        artifact_sha256_hex: artifact_sha256_hex.to_string(),
+        prev_event_hash_hex: prev_event_hash_hex.map(|s| s.to_string()),
+        actors: serde_json::Value::Object(actors_map),
+        issued_at: issued_at.to_string(),
+    };
 
+    // Serialize to JSON with sorted keys (serde_json maintains insertion order, we built it sorted)
+    let canonical_json =
+        serde_json::to_string(&canonical).expect("Failed to serialize canonical event");
+
+    // Hash the canonical JSON
+    let mut hasher = Sha256::new();
+    hasher.update(canonical_json.as_bytes());
     let result = hasher.finalize();
+
     hex::encode(result)
+}
+
+/// Sign an event hash with a secp256k1 private key
+///
+/// # Arguments
+/// * `event_hash_hex` - The hex-encoded event hash to sign
+/// * `private_key_hex` - The hex-encoded secp256k1 private key
+///
+/// # Returns
+/// Hex-encoded DER signature
+pub fn sign_event_hash(event_hash_hex: &str, private_key_hex: &str) -> Result<String> {
+    use secp256k1::{ecdsa::Signature, Message, Secp256k1, SecretKey};
+
+    // Decode hex inputs
+    let event_hash_bytes = hex::decode(event_hash_hex)
+        .map_err(|e| anyhow::anyhow!("Failed to decode event hash: {}", e))?;
+    let private_key_bytes = hex::decode(private_key_hex)
+        .map_err(|e| anyhow::anyhow!("Failed to decode private key: {}", e))?;
+
+    // Create secp256k1 context
+    let secp = Secp256k1::new();
+
+    // Parse private key
+    let secret_key = SecretKey::from_slice(&private_key_bytes)
+        .map_err(|e| anyhow::anyhow!("Invalid private key: {}", e))?;
+
+    // Create message from hash (must be exactly 32 bytes)
+    if event_hash_bytes.len() != 32 {
+        return Err(anyhow::anyhow!("Event hash must be 32 bytes"));
+    }
+    let message = Message::from_digest_slice(&event_hash_bytes)
+        .map_err(|e| anyhow::anyhow!("Invalid message: {}", e))?;
+
+    // Sign the message
+    let signature: Signature = secp.sign_ecdsa(&message, &secret_key);
+
+    // Serialize signature to DER format and encode as hex
+    Ok(hex::encode(signature.serialize_der()))
+}
+
+/// Verify an ECDSA signature over an event hash
+///
+/// # Arguments
+/// * `event_hash_hex` - The hex-encoded event hash that was signed
+/// * `signature_hex` - The hex-encoded DER signature
+/// * `public_key_hex` - The hex-encoded compressed public key
+///
+/// # Returns
+/// `Ok(true)` if signature is valid, `Ok(false)` if invalid, `Err` on parsing errors
+pub fn verify_event_signature(
+    event_hash_hex: &str,
+    signature_hex: &str,
+    public_key_hex: &str,
+) -> Result<bool> {
+    use secp256k1::{ecdsa::Signature, Message, PublicKey, Secp256k1};
+
+    // Decode hex inputs
+    let event_hash_bytes = hex::decode(event_hash_hex)
+        .map_err(|e| anyhow::anyhow!("Failed to decode event hash: {}", e))?;
+    let signature_bytes = hex::decode(signature_hex)
+        .map_err(|e| anyhow::anyhow!("Failed to decode signature: {}", e))?;
+    let public_key_bytes = hex::decode(public_key_hex)
+        .map_err(|e| anyhow::anyhow!("Failed to decode public key: {}", e))?;
+
+    // Create secp256k1 context
+    let secp = Secp256k1::new();
+
+    // Parse signature
+    let signature = Signature::from_der(&signature_bytes)
+        .map_err(|e| anyhow::anyhow!("Invalid signature: {}", e))?;
+
+    // Parse public key
+    let public_key = PublicKey::from_slice(&public_key_bytes)
+        .map_err(|e| anyhow::anyhow!("Invalid public key: {}", e))?;
+
+    // Create message from hash (must be exactly 32 bytes)
+    if event_hash_bytes.len() != 32 {
+        return Err(anyhow::anyhow!("Event hash must be 32 bytes"));
+    }
+    let message = Message::from_digest_slice(&event_hash_bytes)
+        .map_err(|e| anyhow::anyhow!("Invalid message: {}", e))?;
+
+    // Verify signature
+    match secp.verify_ecdsa(&message, &signature, &public_key) {
+        Ok(_) => Ok(true),
+        Err(_) => Ok(false),
+    }
+}
+
+/// Verify a complete event's integrity and signature
+///
+/// This function:
+/// 1. Recomputes the canonical event hash
+/// 2. Verifies it matches the stored event_hash_hex
+/// 3. Verifies the signature over the event hash
+///
+/// # Returns
+/// * `Ok(true)` - Event is valid (hash matches and signature verifies)
+/// * `Ok(false)` - Event is invalid (hash mismatch or signature fails)
+/// * `Err` - Error during verification (missing data, parsing errors, etc.)
+pub fn verify_event(event: &Event) -> Result<bool> {
+    // Recompute canonical event hash
+    let computed_hash = compute_event_hash(
+        event.index,
+        &event.action,
+        &event.artifact_sha256_hex,
+        event.prev_event_hash_hex.as_deref(),
+        &event.actors,
+        &event.issued_at,
+    );
+
+    // Check if hash matches
+    if computed_hash != event.event_hash_hex {
+        return Ok(false);
+    }
+
+    // Verify signature based on event type
+    match event.action {
+        EventAction::Mint => {
+            // For mint events, verify creator signature
+            match (
+                &event.signatures.creator_sig_hex,
+                &event.actors.creator_pubkey_hex,
+            ) {
+                (Some(sig), Some(pubkey)) => {
+                    verify_event_signature(&event.event_hash_hex, sig, pubkey)
+                }
+                _ => Err(anyhow::anyhow!(
+                    "Mint event missing creator signature or public key"
+                )),
+            }
+        }
+        EventAction::Transfer => {
+            // For transfer events, verify both prev_owner and new_owner signatures
+            let prev_valid = match (
+                &event.signatures.prev_owner_sig_hex,
+                &event.actors.prev_owner_pubkey_hex,
+            ) {
+                (Some(sig), Some(pubkey)) => {
+                    verify_event_signature(&event.event_hash_hex, sig, pubkey)?
+                }
+                _ => {
+                    return Err(anyhow::anyhow!(
+                        "Transfer event missing prev_owner signature or public key"
+                    ))
+                }
+            };
+
+            let new_valid = match (
+                &event.signatures.new_owner_sig_hex,
+                &event.actors.new_owner_pubkey_hex,
+            ) {
+                (Some(sig), Some(pubkey)) => {
+                    verify_event_signature(&event.event_hash_hex, sig, pubkey)?
+                }
+                _ => {
+                    return Err(anyhow::anyhow!(
+                        "Transfer event missing new_owner signature or public key"
+                    ))
+                }
+            };
+
+            Ok(prev_valid && new_valid)
+        }
+    }
 }
 
 #[cfg(test)]
@@ -574,6 +785,270 @@ mod tests {
         assert_eq!(manifest.artifact.sha256_hex, "abc123");
         assert_eq!(manifest.events.len(), 1);
         assert_eq!(manifest.events[0].index, 0);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_canonical_event_hash_deterministic() {
+        // Test that canonical hash is deterministic regardless of how actors are constructed
+        let actors1 = Actors {
+            creator_pubkey_hex: Some("02a1bc".to_string()),
+            prev_owner_pubkey_hex: None,
+            new_owner_pubkey_hex: None,
+        };
+
+        let actors2 = Actors {
+            new_owner_pubkey_hex: None,
+            creator_pubkey_hex: Some("02a1bc".to_string()),
+            prev_owner_pubkey_hex: None,
+        };
+
+        let hash1 = compute_event_hash(
+            0,
+            &EventAction::Mint,
+            "abc123",
+            None,
+            &actors1,
+            "2025-09-25T14:12:34Z",
+        );
+
+        let hash2 = compute_event_hash(
+            0,
+            &EventAction::Mint,
+            "abc123",
+            None,
+            &actors2,
+            "2025-09-25T14:12:34Z",
+        );
+
+        assert_eq!(hash1, hash2, "Canonical hash should be deterministic");
+    }
+
+    #[test]
+    fn test_canonical_event_hash_different_for_different_data() {
+        let actors = Actors {
+            creator_pubkey_hex: Some("02a1bc".to_string()),
+            prev_owner_pubkey_hex: None,
+            new_owner_pubkey_hex: None,
+        };
+
+        let hash1 = compute_event_hash(
+            0,
+            &EventAction::Mint,
+            "abc123",
+            None,
+            &actors,
+            "2025-09-25T14:12:34Z",
+        );
+
+        let hash2 = compute_event_hash(
+            1, // Different index
+            &EventAction::Mint,
+            "abc123",
+            None,
+            &actors,
+            "2025-09-25T14:12:34Z",
+        );
+
+        assert_ne!(
+            hash1, hash2,
+            "Different data should produce different hashes"
+        );
+    }
+
+    #[test]
+    fn test_secp256k1_sign_and_verify() -> Result<()> {
+        use secp256k1::Secp256k1;
+
+        // Generate a random keypair for testing
+        let secp = Secp256k1::new();
+        let (secret_key, public_key) = secp.generate_keypair(&mut rand::thread_rng());
+
+        // Convert to hex
+        let private_key_hex = hex::encode(secret_key.secret_bytes());
+        let public_key_hex = hex::encode(public_key.serialize());
+
+        // Create a sample event hash
+        let actors = Actors {
+            creator_pubkey_hex: Some(public_key_hex.clone()),
+            prev_owner_pubkey_hex: None,
+            new_owner_pubkey_hex: None,
+        };
+
+        let event_hash = compute_event_hash(
+            0,
+            &EventAction::Mint,
+            "abc123",
+            None,
+            &actors,
+            "2025-09-25T14:12:34Z",
+        );
+
+        // Sign the event hash
+        let signature = sign_event_hash(&event_hash, &private_key_hex)?;
+
+        // Verify the signature
+        let is_valid = verify_event_signature(&event_hash, &signature, &public_key_hex)?;
+
+        assert!(is_valid, "Signature should be valid");
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_secp256k1_verify_invalid_signature() -> Result<()> {
+        use secp256k1::Secp256k1;
+
+        // Generate two different keypairs
+        let secp = Secp256k1::new();
+        let (secret_key1, public_key1) = secp.generate_keypair(&mut rand::thread_rng());
+        let (_secret_key2, public_key2) = secp.generate_keypair(&mut rand::thread_rng());
+
+        let private_key_hex = hex::encode(secret_key1.secret_bytes());
+        let public_key1_hex = hex::encode(public_key1.serialize());
+        let public_key2_hex = hex::encode(public_key2.serialize());
+
+        // Create event hash and sign with keypair1
+        let actors = Actors {
+            creator_pubkey_hex: Some(public_key1_hex.clone()),
+            prev_owner_pubkey_hex: None,
+            new_owner_pubkey_hex: None,
+        };
+
+        let event_hash = compute_event_hash(
+            0,
+            &EventAction::Mint,
+            "abc123",
+            None,
+            &actors,
+            "2025-09-25T14:12:34Z",
+        );
+
+        let signature = sign_event_hash(&event_hash, &private_key_hex)?;
+
+        // Try to verify with keypair2's public key (should fail)
+        let is_valid = verify_event_signature(&event_hash, &signature, &public_key2_hex)?;
+
+        assert!(
+            !is_valid,
+            "Signature should be invalid with wrong public key"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_verify_complete_mint_event() -> Result<()> {
+        use secp256k1::Secp256k1;
+
+        // Generate keypair
+        let secp = Secp256k1::new();
+        let (secret_key, public_key) = secp.generate_keypair(&mut rand::thread_rng());
+
+        let private_key_hex = hex::encode(secret_key.secret_bytes());
+        let public_key_hex = hex::encode(public_key.serialize());
+
+        // Create actors
+        let actors = Actors {
+            creator_pubkey_hex: Some(public_key_hex.clone()),
+            prev_owner_pubkey_hex: None,
+            new_owner_pubkey_hex: None,
+        };
+
+        // Compute canonical event hash
+        let event_hash = compute_event_hash(
+            0,
+            &EventAction::Mint,
+            "abc123",
+            None,
+            &actors,
+            "2025-09-25T14:12:34Z",
+        );
+
+        // Sign the hash
+        let signature = sign_event_hash(&event_hash, &private_key_hex)?;
+
+        // Create complete event
+        let event = Event {
+            event_type: "provenance.event/v1".to_string(),
+            index: 0,
+            action: EventAction::Mint,
+            artifact_sha256_hex: "abc123".to_string(),
+            prev_event_hash_hex: None,
+            actors: actors.clone(),
+            issued_at: "2025-09-25T14:12:34Z".to_string(),
+            event_hash_hex: event_hash.clone(),
+            signatures: Signatures {
+                creator_sig_hex: Some(signature),
+                prev_owner_sig_hex: None,
+                new_owner_sig_hex: None,
+            },
+            ots_proof_b64: "AAA...".to_string(),
+        };
+
+        // Verify complete event
+        let is_valid = verify_event(&event)?;
+
+        assert!(is_valid, "Complete mint event should be valid");
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_verify_event_with_tampered_hash() -> Result<()> {
+        use secp256k1::Secp256k1;
+
+        // Generate keypair
+        let secp = Secp256k1::new();
+        let (secret_key, public_key) = secp.generate_keypair(&mut rand::thread_rng());
+
+        let private_key_hex = hex::encode(secret_key.secret_bytes());
+        let public_key_hex = hex::encode(public_key.serialize());
+
+        // Create actors
+        let actors = Actors {
+            creator_pubkey_hex: Some(public_key_hex.clone()),
+            prev_owner_pubkey_hex: None,
+            new_owner_pubkey_hex: None,
+        };
+
+        // Compute canonical event hash
+        let event_hash = compute_event_hash(
+            0,
+            &EventAction::Mint,
+            "abc123",
+            None,
+            &actors,
+            "2025-09-25T14:12:34Z",
+        );
+
+        // Sign the hash
+        let signature = sign_event_hash(&event_hash, &private_key_hex)?;
+
+        // Create event with TAMPERED hash
+        let event = Event {
+            event_type: "provenance.event/v1".to_string(),
+            index: 0,
+            action: EventAction::Mint,
+            artifact_sha256_hex: "abc123".to_string(),
+            prev_event_hash_hex: None,
+            actors: actors.clone(),
+            issued_at: "2025-09-25T14:12:34Z".to_string(),
+            event_hash_hex: "0000000000000000000000000000000000000000000000000000000000000000"
+                .to_string(), // TAMPERED!
+            signatures: Signatures {
+                creator_sig_hex: Some(signature),
+                prev_owner_sig_hex: None,
+                new_owner_sig_hex: None,
+            },
+            ots_proof_b64: "AAA...".to_string(),
+        };
+
+        // Verification should fail
+        let is_valid = verify_event(&event)?;
+
+        assert!(!is_valid, "Event with tampered hash should be invalid");
 
         Ok(())
     }
