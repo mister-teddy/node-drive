@@ -42,6 +42,14 @@ pub struct Event {
     pub event_hash_hex: String,
     pub signatures: Signatures,
     pub ots_proof_b64: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub verified_chain: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub verified_timestamp: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub verified_height: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_verified_at: Option<String>,
 }
 
 /// Event action type
@@ -124,6 +132,10 @@ impl ProvenanceDb {
                 issued_at TEXT NOT NULL,
                 event_hash_hex TEXT NOT NULL UNIQUE,
                 ots_proof_b64 TEXT NOT NULL,
+                verified_chain TEXT,
+                verified_timestamp INTEGER,
+                verified_height INTEGER,
+                last_verified_at TEXT,
                 FOREIGN KEY (artifact_id) REFERENCES artifacts(id) ON DELETE CASCADE,
                 UNIQUE(artifact_id, index_num)
             )",
@@ -302,7 +314,8 @@ impl ProvenanceDb {
         let conn = self.conn.lock().unwrap();
 
         let mut stmt = conn.prepare(
-            "SELECT id, index_num, action, artifact_sha256_hex, prev_event_hash_hex, issued_at, event_hash_hex, ots_proof_b64
+            "SELECT id, index_num, action, artifact_sha256_hex, prev_event_hash_hex, issued_at, event_hash_hex, ots_proof_b64,
+                    verified_chain, verified_timestamp, verified_height, last_verified_at
              FROM events
              WHERE artifact_id = ?1
              ORDER BY index_num ASC"
@@ -320,6 +333,10 @@ impl ProvenanceDb {
             let issued_at: String = row.get(5)?;
             let event_hash_hex: String = row.get(6)?;
             let ots_proof_b64: String = row.get(7)?;
+            let verified_chain: Option<String> = row.get(8)?;
+            let verified_timestamp: Option<i64> = row.get(9)?;
+            let verified_height: Option<u64> = row.get(10)?;
+            let last_verified_at: Option<String> = row.get(11)?;
 
             // Get actors
             let mut actors_stmt =
@@ -380,6 +397,10 @@ impl ProvenanceDb {
                 event_hash_hex,
                 signatures,
                 ots_proof_b64,
+                verified_chain,
+                verified_timestamp,
+                verified_height,
+                last_verified_at,
             });
         }
 
@@ -445,6 +466,75 @@ impl ProvenanceDb {
             params![ots_proof_b64, artifact_id, event_index],
         )?;
 
+        Ok(())
+    }
+
+    /// Update verification results for a specific event
+    pub fn update_verification_result(
+        &self,
+        artifact_id: i64,
+        event_index: u32,
+        chain: &str,
+        timestamp: i64,
+        height: u64,
+    ) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        let now = chrono::Utc::now().to_rfc3339();
+
+        conn.execute(
+            "UPDATE events
+             SET verified_chain = ?1,
+                 verified_timestamp = ?2,
+                 verified_height = ?3,
+                 last_verified_at = ?4
+             WHERE artifact_id = ?5 AND index_num = ?6",
+            params![
+                chain,
+                timestamp,
+                height as i64,
+                now,
+                artifact_id,
+                event_index
+            ],
+        )?;
+
+        Ok(())
+    }
+
+    /// Update both OTS proof and verification results in a single transaction
+    pub fn update_ots_proof_and_verification(
+        &self,
+        artifact_id: i64,
+        event_index: u32,
+        ots_proof_b64: &str,
+        chain: &str,
+        timestamp: i64,
+        height: u64,
+    ) -> Result<()> {
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction()?;
+        let now = chrono::Utc::now().to_rfc3339();
+
+        tx.execute(
+            "UPDATE events
+             SET ots_proof_b64 = ?1,
+                 verified_chain = ?2,
+                 verified_timestamp = ?3,
+                 verified_height = ?4,
+                 last_verified_at = ?5
+             WHERE artifact_id = ?6 AND index_num = ?7",
+            params![
+                ots_proof_b64,
+                chain,
+                timestamp,
+                height as i64,
+                now,
+                artifact_id,
+                event_index
+            ],
+        )?;
+
+        tx.commit()?;
         Ok(())
     }
 }
@@ -985,6 +1075,10 @@ mod tests {
                 new_owner_sig_hex: None,
             },
             ots_proof_b64: "AAA...".to_string(),
+            verified_chain: None,
+            verified_timestamp: None,
+            verified_height: None,
+            last_verified_at: None,
         };
 
         // Verify complete event
@@ -1043,6 +1137,10 @@ mod tests {
                 new_owner_sig_hex: None,
             },
             ots_proof_b64: "AAA...".to_string(),
+            verified_chain: None,
+            verified_timestamp: None,
+            verified_height: None,
+            last_verified_at: None,
         };
 
         // Verification should fail
