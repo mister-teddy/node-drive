@@ -4,69 +4,44 @@ mod provenance_handlers;
 mod response_utils;
 mod webdav;
 
-pub use handlers::*;
 pub use path_item::*;
-pub use provenance_handlers::*;
 pub use response_utils::*;
-pub use webdav::*;
 
 use crate::auth::{www_authenticate, AccessPaths, AccessPerm};
-use crate::http_utils::{body_full, IncomingStream, LengthLimitedStream};
-use crate::noscript::{detect_noscript, generate_noscript_html};
+use crate::http_utils::body_full;
+use crate::noscript::detect_noscript;
 use crate::provenance::ProvenanceDb;
 use crate::utils::{
     decode_uri, encode_uri, get_file_mtime_and_mode, get_file_name, glob, parse_range,
-    try_get_file_name,
 };
 use crate::Args;
 
 use anyhow::{anyhow, Result};
 use async_zip::{tokio::write::ZipFileWriter, Compression, ZipDateTime, ZipEntryBuilder};
 use base64::{engine::general_purpose::STANDARD, Engine as _};
-use bytes::Bytes;
-use chrono::{LocalResult, TimeZone, Utc};
-use futures_util::{pin_mut, TryStreamExt};
-use headers::{
-    AcceptRanges, CacheControl, ContentLength, ContentType, ETag, HeaderMap, HeaderMapExt, IfMatch,
-    IfModifiedSince, IfNoneMatch, IfRange, IfUnmodifiedSince, LastModified, Range,
-};
-use http_body_util::{combinators::BoxBody, BodyExt, StreamBody};
-use hyper::body::Frame;
+use headers::HeaderMap;
 use hyper::{
     body::Incoming,
-    header::{
-        HeaderValue, AUTHORIZATION, CONNECTION, CONTENT_LENGTH, CONTENT_RANGE, CONTENT_TYPE, RANGE,
-    },
+    header::{HeaderValue, AUTHORIZATION, CONNECTION},
     Method, StatusCode, Uri,
 };
-use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::borrow::Cow;
-use std::cmp::Ordering;
 use std::collections::HashMap;
-use std::fs::Metadata;
-use std::io::SeekFrom;
 use std::net::SocketAddr;
 use std::path::{Component, Path, PathBuf, MAIN_SEPARATOR};
 use std::sync::atomic::{self, AtomicBool};
 use std::sync::Arc;
-use std::time::SystemTime;
 use tokio::fs::File;
-use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWrite};
+use tokio::io::AsyncWrite;
 use tokio::{fs, io};
 
 use tokio_util::compat::FuturesAsyncWriteCompatExt;
-use tokio_util::io::{ReaderStream, StreamReader};
-use uuid::Uuid;
 use walkdir::{DirEntry, WalkDir};
 
 pub type Request = hyper::Request<Incoming>;
 
 const INDEX_HTML: &str = include_str!("../../assets/index.html");
-const INDEX_NAME: &str = "index.html";
-const BUF_SIZE: usize = 65536;
-const EDITABLE_TEXT_MAX_SIZE: u64 = 4194304; // 4M
-const RESUMABLE_UPLOAD_MIN_SIZE: u64 = 20971520; // 20M
 const HEALTH_CHECK_PATH: &str = "__dufs__/health";
 pub const MAX_SUBPATHS_COUNT: u64 = 1000;
 
@@ -901,39 +876,6 @@ fn is_hidden(hidden: &[String], file_name: &str, is_dir: bool) -> bool {
     })
 }
 
-fn to_timestamp(time: &SystemTime) -> u64 {
-    time.duration_since(SystemTime::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as u64
-}
-
-fn normalize_path<P: AsRef<Path>>(path: P) -> String {
-    let path = path.as_ref().to_str().unwrap_or_default();
-    if cfg!(windows) {
-        path.replace('\\', "/")
-    } else {
-        path.to_string()
-    }
-}
-
-async fn ensure_path_parent(path: &Path) -> Result<()> {
-    if let Some(parent) = path.parent() {
-        if fs::symlink_metadata(parent).await.is_err() {
-            fs::create_dir_all(&parent).await?;
-        }
-    }
-    Ok(())
-}
-
-fn extract_cache_headers(meta: &Metadata) -> Option<(ETag, LastModified)> {
-    let mtime = meta.modified().ok().or_else(|| meta.created().ok())?;
-    let timestamp = to_timestamp(&mtime);
-    let size = meta.len();
-    let etag = format!(r#""{timestamp}-{size}""#).parse::<ETag>().ok()?;
-    let last_modified = LastModified::from(mtime);
-    Some((etag, last_modified))
-}
-
 async fn collect_dir_entries<F>(
     access_paths: AccessPaths,
     running: Arc<AtomicBool>,
@@ -983,37 +925,6 @@ where
         }
     }
     paths
-}
-
-async fn get_content_type(path: &Path) -> Result<String> {
-    let mut buffer: Vec<u8> = vec![];
-    fs::File::open(path)
-        .await?
-        .take(1024)
-        .read_to_end(&mut buffer)
-        .await?;
-    let mime = mime_guess::from_path(path).first();
-    let is_text = content_inspector::inspect(&buffer).is_text();
-    let content_type = if is_text {
-        let mut detector = chardetng::EncodingDetector::new();
-        detector.feed(&buffer, buffer.len() < 1024);
-        let (enc, confident) = detector.guess_assess(None, true);
-        let charset = if confident {
-            format!("; charset={}", enc.name())
-        } else {
-            "".into()
-        };
-        match mime {
-            Some(m) => format!("{m}{charset}"),
-            None => format!("text/plain{charset}"),
-        }
-    } else {
-        match mime {
-            Some(m) => m.to_string(),
-            None => "application/octet-stream".into(),
-        }
-    };
-    Ok(content_type)
 }
 
 async fn zip_dir<W: AsyncWrite + Unpin>(

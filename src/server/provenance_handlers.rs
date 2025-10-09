@@ -3,7 +3,6 @@ use base64::{engine::general_purpose::STANDARD, Engine as _};
 use headers::{ContentLength, ContentType, HeaderMapExt};
 use http_body_util::BodyExt;
 use hyper::{
-    body::Bytes,
     header::{HeaderValue, CONTENT_LENGTH, CONTENT_TYPE},
     StatusCode,
 };
@@ -14,12 +13,9 @@ use std::path::Path;
 use tokio::fs;
 
 use crate::http_utils::body_full;
-use crate::provenance::{
-    compute_event_hash, sign_event_hash, verify_event, Actors, Event, EventAction, InsertEventArgs,
-    ProvenanceDb, Signatures, SERVER_PRIVATE_KEY_HEX, SERVER_PUBLIC_KEY_HEX,
-};
+use crate::provenance::ProvenanceDb;
 
-use super::path_item::{MintEventResponse, StampStatus};
+use super::path_item::StampStatus;
 use super::response_utils::{
     set_content_disposition, set_json_response, status_not_found, Response,
 };
@@ -320,166 +316,6 @@ pub async fn handle_hash_file(path: &Path, head_only: bool, res: &mut Response) 
     }
     *res.body_mut() = body_full(output);
     Ok(())
-}
-
-pub async fn create_mint_event(
-    path: &Path,
-    provenance_db: &ProvenanceDb,
-    compute_stamp_status: impl Fn(
-        &Path,
-    ) -> std::pin::Pin<
-        Box<dyn std::future::Future<Output = Option<StampStatus>> + Send>,
-    >,
-) -> Result<MintEventResponse> {
-    // Read file and compute SHA-256 hash
-    let file_data = tokio::fs::read(path).await?;
-    let mut hasher = Sha256::new();
-    hasher.update(&file_data);
-    let hash_bytes = hasher.finalize();
-    let sha256_hex = hex::encode(hash_bytes);
-
-    let file_name = path
-        .file_name()
-        .and_then(|n| n.to_str())
-        .ok_or_else(|| anyhow!("Invalid filename"))?
-        .to_string();
-    let size_bytes = file_data.len() as u64;
-
-    // Insert or update artifact
-    let artifact_id = provenance_db.upsert_artifact(&file_name, &sha256_hex, size_bytes)?;
-
-    // Check if mint event already exists
-    let next_index = provenance_db.get_next_event_index(artifact_id)?;
-    if next_index > 0 {
-        // Artifact already has events, return existing mint event
-        let manifest = provenance_db
-            .get_manifest(&sha256_hex)?
-            .ok_or_else(|| anyhow!("Manifest not found after checking event index"))?;
-
-        let first_event = &manifest.events[0];
-
-        // Compute stamp status for existing event
-        let stamp_status = compute_stamp_status(path).await;
-
-        return Ok(MintEventResponse {
-            filename: file_name,
-            sha256: sha256_hex,
-            ots_base64: first_event.ots_proof_b64.clone(),
-            event_hash: first_event.event_hash_hex.clone(),
-            issued_at: first_event.issued_at.clone(),
-            stamp_status,
-        });
-    }
-
-    // Use server's static keypair for signing
-    let actors = Actors {
-        creator_pubkey_hex: Some(SERVER_PUBLIC_KEY_HEX.to_string()),
-        prev_owner_pubkey_hex: None,
-        new_owner_pubkey_hex: None,
-    };
-
-    let issued_at = chrono::Utc::now().to_rfc3339();
-
-    // Compute canonical event hash
-    let event_hash_hex = compute_event_hash(
-        0,
-        &EventAction::Mint,
-        &sha256_hex,
-        None,
-        &actors,
-        &issued_at,
-    );
-
-    // Sign the event hash with server's private key
-    let creator_signature = sign_event_hash(&event_hash_hex, SERVER_PRIVATE_KEY_HEX)
-        .map_err(|e| anyhow!("Failed to sign event: {}", e))?;
-
-    let signatures = Signatures {
-        creator_sig_hex: Some(creator_signature),
-        prev_owner_sig_hex: None,
-        new_owner_sig_hex: None,
-    };
-
-    // Generate real OpenTimestamps proof using our Rust implementation
-    let digest =
-        hex::decode(&sha256_hex).map_err(|e| anyhow!("Failed to decode SHA256 hex: {}", e))?;
-
-    let ots_bytes = match crate::ots_stamper::create_timestamp(&digest).await {
-        Ok(bytes) => bytes,
-        Err(e) => {
-            warn!("Failed to create OTS proof for mint event: {}", e);
-            // Fall back to placeholder if OTS stamping fails
-            Vec::from(b"PLACEHOLDER_OTS_PROOF" as &[u8])
-        }
-    };
-
-    let ots_proof_b64 = STANDARD.encode(&ots_bytes);
-
-    // Insert mint event
-    provenance_db.insert_event(InsertEventArgs {
-        artifact_id,
-        index: 0,
-        action: &EventAction::Mint,
-        artifact_sha256_hex: &sha256_hex,
-        prev_event_hash_hex: None,
-        issued_at: &issued_at,
-        event_hash_hex: &event_hash_hex,
-        ots_proof_b64: &ots_proof_b64,
-        actors: &actors,
-        signatures: &signatures,
-    })?;
-
-    // Verify the event we just created
-    let created_event = Event {
-        event_type: "provenance.event/v1".to_string(),
-        index: 0,
-        action: EventAction::Mint,
-        artifact_sha256_hex: sha256_hex.clone(),
-        prev_event_hash_hex: None,
-        actors: actors.clone(),
-        issued_at: issued_at.clone(),
-        event_hash_hex: event_hash_hex.clone(),
-        signatures: signatures.clone(),
-        ots_proof_b64: ots_proof_b64.clone(),
-        verified_chain: None,
-        verified_timestamp: None,
-        verified_height: None,
-        last_verified_at: None,
-    };
-
-    match verify_event(&created_event) {
-        Ok(true) => {
-            info!(
-                "Created and verified mint event for {} ({})",
-                file_name,
-                &sha256_hex[..8]
-            );
-        }
-        Ok(false) => {
-            warn!(
-                "Mint event verification failed for {} ({})",
-                file_name,
-                &sha256_hex[..8]
-            );
-        }
-        Err(e) => {
-            warn!("Error verifying mint event for {}: {}", file_name, e);
-        }
-    }
-
-    Ok(MintEventResponse {
-        filename: file_name,
-        sha256: sha256_hex.clone(),
-        ots_base64: ots_proof_b64,
-        event_hash: event_hash_hex,
-        issued_at,
-        stamp_status: Some(StampStatus {
-            success: false,
-            results: None,
-            error: None, // No error, just pending Bitcoin confirmation
-            sha256_hex: Some(sha256_hex),
-        }),
-    })
 }
 
 async fn sha256_file(path: &Path) -> Result<String> {

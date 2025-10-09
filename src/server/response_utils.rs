@@ -1,7 +1,7 @@
 use anyhow::Result;
 use headers::{
     AccessControlAllowCredentials, AccessControlAllowOrigin, CacheControl, ContentLength,
-    ContentType, ETag, HeaderMap, HeaderMapExt, LastModified,
+    ContentType, ETag, HeaderMapExt, LastModified,
 };
 use http_body_util::combinators::BoxBody;
 use hyper::{

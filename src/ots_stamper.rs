@@ -19,10 +19,10 @@ const DEFAULT_CALENDAR_URLS: &[&str] = &[
     "https://ots.btc.catallaxy.com",
 ];
 
-const MAX_RESPONSE_SIZE: usize = 10_000;
-
 // Default block explorer for verification
 const DEFAULT_ESPLORA_URL: &str = "https://blockstream.info/api";
+
+const MAX_RESPONSE_SIZE: usize = 10_000;
 
 // Maximum size for upgrade responses from calendar servers
 const MAX_UPGRADE_RESPONSE_SIZE: usize = 10_000;
@@ -419,6 +419,101 @@ pub async fn upgrade_timestamp(detached_ots: &mut DetachedTimestampFile) -> Resu
     Ok(changed)
 }
 
+/// Verify all attestations and return verification results
+/// This is the equivalent of the JS library's verify function
+/// It performs: digest check, upgrade timestamp, and blockchain verification
+pub async fn verify_timestamp(
+    ots_proof_b64: &str,
+    artifact_sha256_hex: &str,
+) -> Result<VerificationResponse> {
+    // Decode base64 OTS proof
+    let ots_bytes = base64::engine::general_purpose::STANDARD
+        .decode(ots_proof_b64)
+        .map_err(|e| anyhow!("Failed to decode base64 OTS proof: {}", e))?;
+
+    // Decode hex artifact hash
+    let artifact_digest = hex::decode(artifact_sha256_hex)
+        .map_err(|e| anyhow!("Failed to decode artifact SHA256: {}", e))?;
+
+    // Parse the OTS file
+    let cursor = Cursor::new(&ots_bytes);
+    let mut detached_ots = DetachedTimestampFile::from_reader(cursor)
+        .map_err(|e| anyhow!("Failed to parse OTS file: {}", e))?;
+
+    // Verify the digest matches (critical check - must match original file)
+    if detached_ots.timestamp.start_digest != artifact_digest {
+        return Err(anyhow!(
+            "File does not match original! Expected digest: {}",
+            hex::encode(&artifact_digest)
+        ));
+    }
+
+    // Try to upgrade the timestamp by fetching new attestations from calendar servers
+    // This is equivalent to the JS library's upgradeTimestamp call
+    let mut upgraded_ots_b64 = None;
+    match upgrade_timestamp(&mut detached_ots).await {
+        Ok(upgraded) => {
+            if upgraded {
+                info!("Timestamp upgraded with new attestations from calendar servers");
+                // Serialize the upgraded timestamp to base64
+                let mut upgraded_bytes = Vec::new();
+                detached_ots.to_writer(&mut upgraded_bytes)?;
+                upgraded_ots_b64 =
+                    Some(base64::engine::general_purpose::STANDARD.encode(&upgraded_bytes));
+            }
+        }
+        Err(e) => {
+            // Log but don't fail - we can still verify with existing attestations
+            info!("Failed to upgrade timestamp: {}", e);
+        }
+    }
+
+    // Collect all attestations from the (possibly upgraded) timestamp
+    let attestations = collect_attestations(&detached_ots.timestamp.first_step);
+
+    if attestations.is_empty() {
+        return Err(anyhow!("No attestations found in timestamp"));
+    }
+
+    let mut results = Vec::new();
+
+    // Verify each attestation against the blockchain
+    for attestation in attestations {
+        match attestation {
+            Attestation::Bitcoin { height } => {
+                // For Bitcoin attestations, verify against blockchain with merkle root check
+                // TEMPORARILY COMMENTED OUT - using placeholder results
+                match verify_bitcoin_attestation(height as u64, &detached_ots.timestamp.first_step)
+                    .await
+                {
+                    Ok(result) => results.push(result),
+                    Err(e) => {
+                        // Log error but continue with other attestations
+                        eprintln!("Failed to verify Bitcoin attestation: {}", e);
+                    }
+                }
+            }
+            Attestation::Pending { .. } => {
+                // Pending attestations are not yet confirmed
+                eprintln!("Skipping pending attestation (could not upgrade)");
+            }
+            Attestation::Unknown { .. } => {
+                // Unknown attestation types
+                eprintln!("Skipping unknown attestation");
+            }
+        }
+    }
+
+    if results.is_empty() {
+        return Err(anyhow!("No verified attestations found"));
+    }
+
+    Ok(VerificationResponse {
+        results,
+        upgraded_ots_b64,
+    })
+}
+
 /// Esplora API block response
 #[derive(Debug, Deserialize)]
 struct EsploraBlock {
@@ -502,107 +597,5 @@ async fn verify_bitcoin_attestation(height: u64, step: &Step) -> Result<Verifica
         chain: "bitcoin".to_string(),
         timestamp: block.timestamp,
         height: block.height,
-    })
-}
-
-/// Verify all attestations and return verification results
-/// This is the equivalent of the JS library's verify function
-/// It performs: digest check, upgrade timestamp, and blockchain verification
-pub async fn verify_timestamp(
-    ots_proof_b64: &str,
-    artifact_sha256_hex: &str,
-) -> Result<VerificationResponse> {
-    // Decode base64 OTS proof
-    let ots_bytes = base64::engine::general_purpose::STANDARD
-        .decode(ots_proof_b64)
-        .map_err(|e| anyhow!("Failed to decode base64 OTS proof: {}", e))?;
-
-    // Decode hex artifact hash
-    let artifact_digest = hex::decode(artifact_sha256_hex)
-        .map_err(|e| anyhow!("Failed to decode artifact SHA256: {}", e))?;
-
-    // Parse the OTS file
-    let cursor = Cursor::new(&ots_bytes);
-    let mut detached_ots = DetachedTimestampFile::from_reader(cursor)
-        .map_err(|e| anyhow!("Failed to parse OTS file: {}", e))?;
-
-    // Verify the digest matches (critical check - must match original file)
-    if detached_ots.timestamp.start_digest != artifact_digest {
-        return Err(anyhow!(
-            "File does not match original! Expected digest: {}",
-            hex::encode(&artifact_digest)
-        ));
-    }
-
-    // Try to upgrade the timestamp by fetching new attestations from calendar servers
-    // This is equivalent to the JS library's upgradeTimestamp call
-    let mut upgraded_ots_b64 = None;
-    match upgrade_timestamp(&mut detached_ots).await {
-        Ok(upgraded) => {
-            if upgraded {
-                info!("Timestamp upgraded with new attestations from calendar servers");
-                // Serialize the upgraded timestamp to base64
-                let mut upgraded_bytes = Vec::new();
-                detached_ots.to_writer(&mut upgraded_bytes)?;
-                upgraded_ots_b64 =
-                    Some(base64::engine::general_purpose::STANDARD.encode(&upgraded_bytes));
-            }
-        }
-        Err(e) => {
-            // Log but don't fail - we can still verify with existing attestations
-            info!("Failed to upgrade timestamp: {}", e);
-        }
-    }
-
-    // Collect all attestations from the (possibly upgraded) timestamp
-    let attestations = collect_attestations(&detached_ots.timestamp.first_step);
-
-    if attestations.is_empty() {
-        return Err(anyhow!("No attestations found in timestamp"));
-    }
-
-    let mut results = Vec::new();
-
-    // Verify each attestation against the blockchain
-    for attestation in attestations {
-        match attestation {
-            Attestation::Bitcoin { height } => {
-                // For Bitcoin attestations, verify against blockchain with merkle root check
-                // TEMPORARILY COMMENTED OUT - using placeholder results
-                // match verify_bitcoin_attestation(height as u64, &detached_ots.timestamp.first_step)
-                //     .await
-                // {
-                //     Ok(result) => results.push(result),
-                //     Err(e) => {
-                //         // Log error but continue with other attestations
-                //         eprintln!("Failed to verify Bitcoin attestation: {}", e);
-                //     }
-                // }
-                // Just accept the result with placeholder timestamp for now
-                let result = VerificationResult {
-                    chain: "bitcoin".to_string(),
-                    timestamp: 0, // Placeholder - actual verification is commented out
-                    height: height as u64,
-                };
-                results.push(result);
-            }
-            Attestation::Pending { .. } => {
-                // Pending attestations are not yet confirmed
-                eprintln!("Skipping pending attestation (could not upgrade)");
-            }
-            Attestation::Unknown { .. } => {
-                // Unknown attestation types
-                eprintln!("Skipping unknown attestation");
-            }
-        }
-    }
-
-    if results.is_empty() {
-        return Err(anyhow!("No verified attestations found"));
-    }
-
-    Ok(VerificationResponse {
-        results,
-        upgraded_ots_b64,
     })
 }

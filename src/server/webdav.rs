@@ -1,96 +1,12 @@
 use anyhow::Result;
-use headers::{HeaderMap, HeaderMapExt};
 use hyper::{header::HeaderValue, StatusCode};
 use std::path::Path;
 use tokio::fs;
 use uuid::Uuid;
 
-use crate::auth::AccessPaths;
 use crate::http_utils::body_full;
 
-use super::path_item::PathItem;
-use super::response_utils::{
-    res_multistatus, status_bad_request, status_forbid, status_no_content, status_not_found,
-    Response,
-};
-use super::Request;
-
-pub async fn handle_propfind_dir(
-    path: &Path,
-    headers: &HeaderMap<HeaderValue>,
-    serve_path: &Path,
-    uri_prefix: &str,
-    access_paths: AccessPaths,
-    to_pathitem: impl Fn(
-        &Path,
-        &Path,
-    ) -> std::pin::Pin<
-        Box<dyn std::future::Future<Output = Result<Option<PathItem>>> + Send>,
-    >,
-    list_dir: impl Fn(
-        &Path,
-        &Path,
-        AccessPaths,
-    ) -> std::pin::Pin<
-        Box<dyn std::future::Future<Output = Result<Vec<PathItem>>> + Send>,
-    >,
-    res: &mut Response,
-) -> Result<()> {
-    let depth: u32 = match headers.get("depth") {
-        Some(v) => match v.to_str().ok().and_then(|v| v.parse().ok()) {
-            Some(0) => 0,
-            Some(1) => 1,
-            _ => {
-                status_bad_request(res, "Invalid depth: only 0 and 1 are allowed.");
-                return Ok(());
-            }
-        },
-        None => 1,
-    };
-    let mut paths = match to_pathitem(path, serve_path).await? {
-        Some(v) => vec![v],
-        None => vec![],
-    };
-    if depth == 1 {
-        match list_dir(path, serve_path, access_paths).await {
-            Ok(child) => paths.extend(child),
-            Err(_) => {
-                status_forbid(res);
-                return Ok(());
-            }
-        }
-    }
-    let output =
-        paths
-            .iter()
-            .map(|v| v.to_dav_xml(uri_prefix))
-            .fold(String::new(), |mut acc, v| {
-                acc.push_str(&v);
-                acc
-            });
-    res_multistatus(res, &output);
-    Ok(())
-}
-
-pub async fn handle_propfind_file(
-    path: &Path,
-    serve_path: &Path,
-    uri_prefix: &str,
-    to_pathitem: impl Fn(
-        &Path,
-        &Path,
-    ) -> std::pin::Pin<
-        Box<dyn std::future::Future<Output = Result<Option<PathItem>>> + Send>,
-    >,
-    res: &mut Response,
-) -> Result<()> {
-    if let Some(pathitem) = to_pathitem(path, serve_path).await? {
-        res_multistatus(res, &pathitem.to_dav_xml(uri_prefix));
-    } else {
-        status_not_found(res);
-    }
-    Ok(())
-}
+use super::response_utils::{res_multistatus, status_forbid, status_no_content, Response};
 
 pub async fn handle_mkcol(path: &Path, res: &mut Response) -> Result<()> {
     fs::create_dir_all(path).await?;

@@ -2,8 +2,8 @@ use anyhow::{anyhow, Result};
 use base64::{engine::general_purpose::STANDARD, Engine as _};
 use futures_util::{pin_mut, TryStreamExt};
 use headers::{
-    AcceptRanges, CacheControl, ContentLength, ContentType, ETag, HeaderMap, HeaderMapExt, IfMatch,
-    IfModifiedSince, IfNoneMatch, IfRange, IfUnmodifiedSince, LastModified, Range,
+    AcceptRanges, CacheControl, ContentLength, ContentType, HeaderMap, HeaderMapExt, IfMatch,
+    IfModifiedSince, IfNoneMatch, IfRange, IfUnmodifiedSince, Range,
 };
 use http_body_util::{BodyExt, StreamBody};
 use hyper::body::Frame;
@@ -11,14 +11,11 @@ use hyper::{
     header::{HeaderValue, CONTENT_LENGTH, CONTENT_RANGE, CONTENT_TYPE, RANGE},
     StatusCode,
 };
-use sha2::{Digest, Sha256};
 use std::collections::HashMap;
-use std::fs::Metadata;
 use std::io::SeekFrom;
 use std::path::Path;
 use std::sync::Arc;
-use std::time::SystemTime;
-use tokio::fs::{self, File};
+use tokio::fs::{self};
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
 use tokio::{self, io};
 use tokio_util::io::{ReaderStream, StreamReader};
@@ -27,10 +24,9 @@ use uuid::Uuid;
 use crate::auth::AccessPaths;
 use crate::http_utils::{body_full, IncomingStream, LengthLimitedStream};
 use crate::noscript::generate_noscript_html;
-use crate::provenance::ProvenanceDb;
 use crate::utils::{get_file_name, parse_range, try_get_file_name};
 
-use super::path_item::{DataKind, EditData, IndexData, PathItem, PathType, StampStatus};
+use super::path_item::{DataKind, EditData, IndexData, PathItem, PathType};
 use super::provenance_handlers;
 use super::response_utils::{
     extract_cache_headers, get_content_type, normalize_path, set_content_disposition,
