@@ -351,7 +351,13 @@ pub async fn compute_stamp_status(
     let sha256_hex = hex::encode(hash_bytes);
 
     // Get manifest from database
-    let manifest = match provenance_db.get_manifest(&sha256_hex).ok()? {
+    let manifest = match provenance_db
+        .get_manifest(&sha256_hex)
+        .inspect_err(|e| {
+            warn!("Failed to get manifest for {}: {}", sha256_hex, e);
+        })
+        .ok()?
+    {
         Some(m) => m,
         None => {
             return None;
