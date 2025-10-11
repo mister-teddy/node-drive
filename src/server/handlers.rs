@@ -604,6 +604,7 @@ impl Server {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn handle_ls_dir(
         &self,
         path: &Path,
@@ -737,6 +738,7 @@ impl Server {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn handle_render_index(
         &self,
         path: &Path,
@@ -1678,6 +1680,7 @@ where
     paths
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn zip_dir<W: tokio::io::AsyncWrite + Unpin>(
     writer: &mut W,
     dir: &Path,
