@@ -1,5 +1,5 @@
-import React from 'react';
-import { Home, ChevronRight } from 'lucide-react';
+import { Breadcrumb as AntBreadcrumb } from 'antd';
+import { HomeOutlined } from '@ant-design/icons';
 
 interface BreadcrumbItem {
   name: string;
@@ -41,37 +41,31 @@ export function Breadcrumb({ href, uriPrefix }: BreadcrumbProps) {
     });
   }
 
+  const breadcrumbItems = items.map((item, index) => {
+    if (index === 0) {
+      return {
+        title: (
+          <a href={item.href} title="Root">
+            <HomeOutlined />
+          </a>
+        ),
+      };
+    }
+
+    if (item.isLast) {
+      return {
+        title: <span style={{ fontWeight: 500 }}>{item.name}</span>,
+      };
+    }
+
+    return {
+      title: <a href={item.href}>{item.name}</a>,
+    };
+  });
+
   return (
-    <nav className="flex items-center gap-2 px-6 py-4 text-sm">
-      {items.map((item, index) => (
-        <React.Fragment key={index}>
-          {index === 0 ? (
-            <a
-              href={item.href}
-              className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground transition-colors"
-              title="Root"
-            >
-              <Home className="h-4 w-4" />
-            </a>
-          ) : (
-            <>
-              <ChevronRight className="h-4 w-4 text-muted-foreground" />
-              {item.isLast ? (
-                <span className="font-medium text-foreground">
-                  {item.name}
-                </span>
-              ) : (
-                <a
-                  href={item.href}
-                  className="text-muted-foreground hover:text-foreground transition-colors"
-                >
-                  {item.name}
-                </a>
-              )}
-            </>
-          )}
-        </React.Fragment>
-      ))}
-    </nav>
+    <div style={{ padding: '16px 24px' }}>
+      <AntBreadcrumb items={breadcrumbItems} />
+    </div>
   );
 }

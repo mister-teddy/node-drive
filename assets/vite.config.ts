@@ -6,8 +6,9 @@ import { resolve } from 'path'
 export default defineConfig({
   plugins: [react()],
   build: {
-    outDir: './', // Output to the assets/ directory itself
-    emptyOutDir: false, // Don't empty the entire directory, just overwrite files
+    outDir: './dist', // Output to the dist/ directory
+    emptyOutDir: true, // Clean the dist directory before building
+    sourcemap: true, // Enable source maps for debugging
     rollupOptions: {
       input: {
         main: resolve(__dirname, 'src/main.tsx'),

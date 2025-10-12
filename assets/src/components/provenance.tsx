@@ -1,5 +1,14 @@
-import React, { useState, useEffect } from 'react';
-import { copyToClipboard, formatHashShort } from '../utils';
+import { useState } from 'react';
+import { Tag, Modal, Button, Spin, Card, Space, Typography, Descriptions } from 'antd';
+import {
+  CheckCircleOutlined,
+  ClockCircleOutlined,
+  DownloadOutlined,
+  SafetyCertificateOutlined,
+} from '@ant-design/icons';
+import { formatHashShort } from '../utils';
+
+const { Text, Paragraph } = Typography;
 
 interface StampStatus {
   success: boolean;
@@ -45,14 +54,12 @@ interface ProvenanceProps {
 
 export default function Provenance({
   fileName,
-  defaultMode = "full",
   isDir = false,
   stampStatus,
 }: ProvenanceProps) {
-  const [copiedHash, setCopiedHash] = useState<string | null>(null);
   const [manifest, setManifest] = useState<Manifest | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [isExpanded, setIsExpanded] = useState(defaultMode === "full");
+  const [isModalVisible, setIsModalVisible] = useState(false);
   const isPending =
     typeof stampStatus === "string" ||
     (stampStatus && !stampStatus.success);
@@ -93,497 +100,230 @@ export default function Provenance({
     }
   };
 
-  // Fetch provenance data only when expanded (full view opened)
-  useEffect(() => {
-    if (!isDir && isExpanded && !manifest) {
+  const handleModalOpen = () => {
+    if (!manifest && !isLoading) {
       fetchProvenanceData();
     }
-  }, [fileName, isDir, isExpanded]);
-
-  const handleCopy = async (text: string, hashValue: string) => {
-    const success = await copyToClipboard(text);
-    if (success) {
-      setCopiedHash(hashValue);
-      setTimeout(() => setCopiedHash(null), 2000);
-    }
+    setIsModalVisible(true);
   };
 
-  // Render summary view for summary mode
+  // Render summary view
   const renderSummary = () => {
     if (isLoading) {
-      return (
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            gap: "2px",
-            fontSize: "10px",
-          }}
-        >
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "4px",
-              color: "#999",
-            }}
-          >
-            <span
-              style={{
-                display: "inline-block",
-                width: "10px",
-                height: "10px",
-                border: "2px solid #ddd",
-                borderTopColor: "#666",
-                borderRadius: "50%",
-                animation: "spin 0.6s linear infinite",
-              }}
-            />
-            Loading...
-          </div>
-        </div>
-      );
+      return <Spin size="small" />;
     }
 
-    // Show stamp if we have stampStatus (even without manifest)
+    // Show stamp if we have stampStatus
     if (
       !stampStatus &&
       (!manifest || !manifest.events || manifest.events.length === 0)
     ) {
-      return (
-        <span
-          style={{
-            color: "#999",
-            fontSize: "11px",
-          }}
-        >
-          —
-        </span>
-      );
+      return <Text type="secondary" style={{ fontSize: 11 }}>—</Text>;
     }
 
     const stampStatusObj = typeof stampStatus === 'string' ? null : stampStatus;
 
     return (
-      <div
-        style={{
-          cursor: "pointer",
-        }}
-        onClick={() => setIsExpanded(!isExpanded)}
-        title="Click to view full ownership log"
-      >
-        {/* Stamp-like UI */}
-        <div
+      <div onClick={handleModalOpen} style={{ cursor: 'pointer' }}>
+        <Tag
+          icon={isPending ? <ClockCircleOutlined /> : <CheckCircleOutlined />}
+          color={isPending ? 'warning' : 'success'}
           style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: "6px",
-            padding: "6px 10px",
-            border: "2px solid " + (isPending ? "#FFA000" : "#00C851"),
-            borderRadius: "4px",
-            backgroundColor: isPending ? "#FFF8E1" : "#E8F5E9",
-            transform: "rotate(-2deg)",
-            boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
+            fontSize: '11px',
+            padding: '4px 8px',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '4px',
           }}
         >
-          {/* OpenTimestamps icon */}
-          <img
-            src="https://opentimestamps.org/favicon.ico"
-            alt="OpenTimestamps"
-            style={{
-              width: "16px",
-              height: "16px",
-            }}
-          />
-          {/* Stamp content */}
-          <div
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              gap: "2px",
-            }}
-          >
-            {/* Main status */}
-            <div
-              style={{
-                fontWeight: "600",
-                fontSize: "11px",
-                color: isPending ? "#F57C00" : "#2E7D32",
-                textTransform: "uppercase",
-                letterSpacing: "0.5px",
-              }}
-            >
-              {isPending ? "Pending" : "Verified"}
-            </div>
-            {/* SHA256 hash (shortened) - prefer stampStatus, fallback to manifest */}
+          <SafetyCertificateOutlined />
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+            <Text strong style={{ fontSize: '10px', color: 'inherit' }}>
+              {isPending ? 'PENDING' : 'VERIFIED'}
+            </Text>
             {(stampStatusObj?.sha256_hex || manifest?.artifact?.sha256_hex) && (
-              <kbd
-                style={{
-                  fontSize: "9px",
-                  color: isPending ? "#F57C00" : "#2E7D32",
-                  backgroundColor: isPending ? "#ffe6bdff" : "#d8ffdbff",
-                  borderRadius: "3px",
-                  padding: "2px 4px",
-                  fontFamily: "monospace",
-                  userSelect: "all",
-                }}
-              >
-                {formatHashShort(stampStatusObj?.sha256_hex || manifest?.artifact?.sha256_hex || "") + "•"}
-              </kbd>
-            )}
-            {/* Bitcoin attestation info */}
-            {stampStatusObj?.success && (
-              <div
-                style={{
-                  fontSize: "8px",
-                  color: "#666",
-                  marginTop: "1px",
-                  maxWidth: "60px",
-                }}
-              >
-                {`Bitcoin block ${
-                  stampStatusObj.results?.bitcoin.height
-                } attests existence as of ${new Date(
-                  (stampStatusObj.results?.bitcoin.timestamp ?? 0) * 1000
-                ).toLocaleDateString(undefined, {
-                  year: "numeric",
-                  month: "short",
-                  day: "numeric",
-                })}`}
-              </div>
+              <Text code style={{ fontSize: '8px', padding: '0 2px' }}>
+                {formatHashShort(stampStatusObj?.sha256_hex || manifest?.artifact?.sha256_hex || "")}•
+              </Text>
             )}
           </div>
-        </div>
+        </Tag>
       </div>
     );
   };
 
-  // Render full ownership log view
+  // Render full view in modal
   const renderFullView = () => {
     if (!manifest) return null;
 
     const hash = manifest.artifact?.sha256_hex || "";
     const stampStatusObj = typeof stampStatus === 'string' ? null : stampStatus;
 
-    // Full mode - detailed ownership log view
     return (
-      <div
-        style={{
-          backgroundColor: "#f9f9f9",
-          padding: "16px",
-          borderRadius: "4px",
-          fontSize: "12px",
-          border: "1px solid #e0e0e0",
-        }}
-      >
-        {/* Title */}
-        <div
-          style={{
-            fontWeight: "600",
-            color: "#333",
-            marginBottom: "12px",
-            fontSize: "13px",
-          }}
-        >
-          Cryptographic Details
-        </div>
+      <Space direction="vertical" size="large" style={{ width: '100%' }}>
         {/* File fingerprint */}
-        <div
-          style={{
-            marginBottom: "16px",
-            paddingBottom: "12px",
-            borderBottom: "1px solid #e0e0e0",
-          }}
-        >
-          <div
-            style={{
-              color: "#666",
-              marginBottom: "4px",
-              fontSize: "11px",
-            }}
-          >
-            Digital Fingerprint (SHA-256):
-          </div>
-          <div
-            style={{
-              fontFamily: "monospace",
-              fontSize: "11px",
-              wordBreak: "break-all",
-              color: "#333",
-              marginBottom: "6px",
-            }}
+        <Card size="small" title="Digital Fingerprint (SHA-256)">
+          <Paragraph
+            copyable
+            code
+            style={{ fontSize: '11px', wordBreak: 'break-all', margin: 0 }}
           >
             {hash}
-          </div>
-          <button
-            onClick={() => handleCopy(hash, hash)}
-            style={{
-              background: "none",
-              border: "1px solid #ddd",
-              color: copiedHash === hash ? "#00C851" : "#666",
-              cursor: "pointer",
-              fontSize: "11px",
-              padding: "3px 8px",
-              borderRadius: "3px",
-            }}
-          >
-            {copiedHash === hash ? "Copied!" : "Copy"}
-          </button>
-        </div>
-        {/* Events list */}
-        {manifest && manifest.events && manifest.events.length > 0 ? (
-          <div>
-            <div
-              style={{
-                color: "#666",
-                fontSize: "11px",
-                fontWeight: "600",
-              }}
-            >
-              {`Provenance Events (${manifest.events.length}):`}
-            </div>
-            <div
-              style={{
-                fontSize: "11px",
-                marginBottom: "8px",
-              }}
-            >
-              This shows the file has existed since this date. It doesn't prove who created it, but it helps show you were first if no one else can prove an earlier date.
-            </div>
-            {manifest.events.map((event: ProvenanceEvent, eventIndex: number) => (
-              <div
-                key={eventIndex}
-                style={{
-                  backgroundColor: "#fff",
-                  padding: "10px",
-                  marginBottom: "8px",
-                  borderRadius: "3px",
-                  border: "1px solid #e0e0e0",
-                }}
+          </Paragraph>
+        </Card>
+
+        {/* Bitcoin Verification Status */}
+        {stampStatusObj && (
+          <Card size="small" title="OpenTimestamps Verification">
+            <Space direction="vertical" style={{ width: '100%' }}>
+              <Tag
+                icon={stampStatusObj.success ? <CheckCircleOutlined /> : <ClockCircleOutlined />}
+                color={stampStatusObj.success ? 'success' : 'warning'}
               >
-                {/* Event type and timestamp */}
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    marginBottom: "6px",
-                  }}
-                >
-                  <span
-                    style={{
-                      fontWeight: "600",
-                      color:
-                        event.action === "mint" ? "#00C851" : "#0073e6",
-                      textTransform: "uppercase",
-                      fontSize: "10px",
-                    }}
-                  >
-                    {event.action}
-                  </span>
-                  <span style={{ color: "#999", fontSize: "10px" }}>
-                    {new Date(event.issued_at).toLocaleString()}
-                  </span>
-                </div>
-                {/* Actor */}
-                <div style={{ marginBottom: "4px" }}>
-                  <span style={{ color: "#666" }}>Actor: </span>
-                  <span
-                    style={{
-                      color: "#333",
-                      fontWeight: "500",
-                      fontFamily: "monospace",
-                      fontSize: "9px",
-                    }}
-                  >
-                    {event.actors?.creator_pubkey_hex?.slice(0, 16) ||
-                      event.actors?.new_owner_pubkey_hex?.slice(0, 16) ||
-                      "Unknown"}
-                  </span>
-                </div>
-                {/* Signature */}
-                <div
-                  style={{
-                    marginBottom: "4px",
-                    fontSize: "10px",
-                  }}
-                >
-                  <span style={{ color: "#666" }}>Signature: </span>
-                  <span
-                    style={{
-                      fontFamily: "monospace",
-                      color: "#333",
-                      fontSize: "9px",
-                    }}
-                  >
-                    {(
-                      event.signatures?.creator_sig_hex ||
-                      event.signatures?.new_owner_sig_hex ||
-                      "N/A"
-                    ).slice(0, 32)}
-                  </span>
-                </div>
-                {/* Bitcoin Verification / OTS Proof */}
-                <div
-                  style={{
-                    marginBottom: event.prev_event_hash_hex ? "4px" : "0",
-                    fontSize: "10px",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "6px",
-                  }}
-                >
-                  <span style={{ color: "#666" }}>OpenTimestamps: </span>
-                  <span
-                    style={{
-                      fontFamily: "monospace",
-                      color: isPending ? "#FFA000" : "#00C851",
-                      fontSize: "9px",
-                    }}
-                  >
-                    {stampStatusObj?.success
-                      ? `Bitcoin block ${
-                          stampStatusObj.results?.bitcoin.height
-                        } attests existence as of ${new Date(
-                          (stampStatusObj.results?.bitcoin.timestamp ?? 0) * 1000
-                        ).toLocaleDateString(undefined, {
-                          year: "numeric",
-                          month: "short",
-                          day: "numeric",
-                        })}`
-                      : "⏳ Pending Bitcoin confirmation..."}
-                  </span>
-                  {/* Download OTS link */}
-                  {event.ots_proof_b64 && event.ots_proof_b64 !== "N/A" && (
-                    <a
-                      href={`${window.location.pathname}${fileName}?ots`}
-                      download
-                      title="Download OpenTimestamps proof (.ots)"
-                      style={{
-                        color: "#0073e6",
-                        cursor: "pointer",
-                        textDecoration: "none",
-                        fontSize: "12px",
-                        marginLeft: "4px",
-                      }}
-                    >
-                      🕒 Download Proof
-                    </a>
-                  )}
-                </div>
-                {/* Previous hash (if exists) */}
-                {event.prev_event_hash_hex && (
-                  <div style={{ fontSize: "10px" }}>
-                    <span style={{ color: "#666" }}>Previous Event Hash: </span>
-                    <span
-                      style={{
-                        fontFamily: "monospace",
-                        color: "#333",
-                        fontSize: "9px",
-                      }}
-                    >
-                      {event.prev_event_hash_hex.slice(0, 16)}
-                    </span>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div
-            style={{
-              color: "#666",
-              fontSize: "11px",
-              fontStyle: "italic",
-            }}
-          >
-            No provenance events recorded
-          </div>
+                {stampStatusObj.success ? 'Verified' : 'Pending Confirmation'}
+              </Tag>
+              {stampStatusObj.success && stampStatusObj.results && (
+                <Text style={{ fontSize: '12px' }}>
+                  Bitcoin block <Text strong>{stampStatusObj.results.bitcoin.height}</Text> attests
+                  existence as of{' '}
+                  <Text strong>
+                    {new Date(stampStatusObj.results.bitcoin.timestamp * 1000).toLocaleDateString(undefined, {
+                      year: 'numeric',
+                      month: 'short',
+                      day: 'numeric',
+                    })}
+                  </Text>
+                </Text>
+              )}
+            </Space>
+          </Card>
         )}
+
+        {/* Events list */}
+        {manifest.events && manifest.events.length > 0 ? (
+          <Card
+            size="small"
+            title={`Provenance Events (${manifest.events.length})`}
+            extra={
+              <Text type="secondary" style={{ fontSize: 11 }}>
+                This shows the file has existed since this date
+              </Text>
+            }
+          >
+            <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+              {manifest.events.map((event: ProvenanceEvent, eventIndex: number) => (
+                <Card key={eventIndex} type="inner" size="small">
+                  <Descriptions column={1} size="small" labelStyle={{ fontWeight: 600 }}>
+                    <Descriptions.Item label="Action">
+                      <Tag color={event.action === 'mint' ? 'green' : 'blue'}>
+                        {event.action.toUpperCase()}
+                      </Tag>
+                    </Descriptions.Item>
+                    <Descriptions.Item label="Timestamp">
+                      {new Date(event.issued_at).toLocaleString()}
+                    </Descriptions.Item>
+                    <Descriptions.Item label="Actor">
+                      <Text code style={{ fontSize: '9px' }}>
+                        {event.actors?.creator_pubkey_hex?.slice(0, 16) ||
+                          event.actors?.new_owner_pubkey_hex?.slice(0, 16) ||
+                          'Unknown'}
+                      </Text>
+                    </Descriptions.Item>
+                    <Descriptions.Item label="Signature">
+                      <Text code style={{ fontSize: '9px' }}>
+                        {(
+                          event.signatures?.creator_sig_hex ||
+                          event.signatures?.new_owner_sig_hex ||
+                          'N/A'
+                        ).slice(0, 32)}
+                      </Text>
+                    </Descriptions.Item>
+                    <Descriptions.Item label="OpenTimestamps">
+                      <Space>
+                        <Text style={{ fontSize: '10px', color: isPending ? '#fa8c16' : '#52c41a' }}>
+                          {stampStatusObj?.success
+                            ? `Block ${stampStatusObj.results?.bitcoin.height} (${new Date(
+                                (stampStatusObj.results?.bitcoin.timestamp ?? 0) * 1000
+                              ).toLocaleDateString()})`
+                            : '⏳ Pending Bitcoin confirmation...'}
+                        </Text>
+                        {event.ots_proof_b64 && event.ots_proof_b64 !== 'N/A' && (
+                          <Button
+                            type="link"
+                            size="small"
+                            icon={<DownloadOutlined />}
+                            href={`${window.location.pathname}${fileName}?ots`}
+                            download
+                          >
+                            Download Proof
+                          </Button>
+                        )}
+                      </Space>
+                    </Descriptions.Item>
+                    {event.prev_event_hash_hex && (
+                      <Descriptions.Item label="Previous Event Hash">
+                        <Text code style={{ fontSize: '9px' }}>
+                          {event.prev_event_hash_hex.slice(0, 16)}...
+                        </Text>
+                      </Descriptions.Item>
+                    )}
+                  </Descriptions>
+                </Card>
+              ))}
+            </Space>
+          </Card>
+        ) : (
+          <Card size="small">
+            <Text type="secondary" italic>
+              No provenance events recorded
+            </Text>
+          </Card>
+        )}
+
         {/* JSON Manifest info */}
         {manifest && (
-          <div
-            style={{
-              marginTop: "12px",
-              paddingTop: "12px",
-              borderTop: "1px solid #e0e0e0",
-              color: "#666",
-              fontSize: "11px",
-            }}
-          >
-            <a
-              style={{ marginBottom: "4px" }}
-              href={`${window.location.pathname}${fileName}?manifest=json`}
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              {`📄 Manifest Version: ${
-                manifest.type || "provenance.manifest/v1"
-              }`}
-            </a>
-            <div>
-              This is a JSON manifest storing the file's fingerprint and an append-only list of signed events (mint, transfers), each with its own OpenTimestamps proof anchored to the Bitcoin blockchain.
-            </div>
-          </div>
+          <Card size="small" title="Manifest Information">
+            <Space direction="vertical">
+              <Button
+                type="link"
+                href={`${window.location.pathname}${fileName}?manifest=json`}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ padding: 0 }}
+              >
+                📄 {manifest.type || 'provenance.manifest/v1'}
+              </Button>
+              <Text style={{ fontSize: '11px' }}>
+                This is a JSON manifest storing the file's fingerprint and an append-only list of
+                signed events (mint, transfers), each with its own OpenTimestamps proof anchored
+                to the Bitcoin blockchain.
+              </Text>
+            </Space>
+          </Card>
         )}
-      </div>
+      </Space>
     );
   };
 
   return (
-    <div>
+    <>
       {renderSummary()}
-      {/* Modal for expanded view */}
-      {isExpanded && manifest && (
-        <div
-          style={{
-            position: "fixed",
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            backgroundColor: "rgba(0, 0, 0, 0.5)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            zIndex: 1000,
-            padding: "20px",
-          }}
-          onClick={() => setIsExpanded(false)}
-        >
-          <div
-            style={{
-              backgroundColor: "#fff",
-              borderRadius: "8px",
-              maxWidth: "800px",
-              maxHeight: "90vh",
-              overflow: "auto",
-              position: "relative",
-            }}
-            onClick={(e: React.MouseEvent) => e.stopPropagation()}
-          >
-            {/* Close button */}
-            <button
-              onClick={() => setIsExpanded(false)}
-              style={{
-                position: "absolute",
-                top: "10px",
-                right: "10px",
-                background: "none",
-                border: "none",
-                fontSize: "20px",
-                cursor: "pointer",
-                color: "#999",
-                padding: 0,
-                lineHeight: 1,
-                fontWeight: "bold",
-              }}
-            >
-              ×
-            </button>
-            {renderFullView()}
+      <Modal
+        title="Cryptographic Details"
+        open={isModalVisible}
+        onCancel={() => setIsModalVisible(false)}
+        footer={null}
+        width={800}
+        styles={{ body: { maxHeight: '70vh', overflow: 'auto' } }}
+      >
+        {isLoading ? (
+          <div style={{ textAlign: 'center', padding: '40px' }}>
+            <Spin size="large" />
           </div>
-        </div>
-      )}
-    </div>
+        ) : (
+          renderFullView()
+        )}
+      </Modal>
+    </>
   );
 }

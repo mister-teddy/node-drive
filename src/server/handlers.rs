@@ -791,8 +791,8 @@ impl Server {
         res: &mut Response,
     ) -> Result<bool> {
         if let Some(_name) = req_path.strip_prefix(&self.assets_prefix) {
-            // Serve embedded assets
-            let asset_file = format!("assets/{}", _name);
+            // Serve embedded assets from dist folder
+            let asset_file = format!("assets/dist/{}", _name);
 
             #[cfg(debug_assertions)]
             let path = {

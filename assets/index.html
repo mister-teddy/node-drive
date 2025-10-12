@@ -8,48 +8,19 @@
     </noscript>
     <link rel="icon" type="image/x-icon" href="__ASSETS_PREFIX__favicon.ico" />
     <link rel="stylesheet" href="__ASSETS_PREFIX__index.css" />
-    <link
-      href="https://releases.transloadit.com/uppy/v5.1.5/uppy.min.css"
-      rel="stylesheet"
-    />
   </head>
 
   <body>
-    <!-- Header Component -->
-    <div data-react-component="Header"></div>
+    <!-- React Root -->
+    <div id="root"></div>
 
-    <!-- Main Content -->
-    <div class="min-h-screen bg-background">
-      <!-- Index Page -->
-      <div class="index-page hidden">
-        <!-- Breadcrumb Component -->
-        <div data-react-component="Breadcrumb"></div>
-
-        <!-- Uppy Upload Container -->
-        <div class="container px-6 py-4">
-          <div id="uppy-container"></div>
-        </div>
-
-        <!-- Files Table Component -->
-        <div class="container px-6">
-          <div data-react-component="FilesTable"></div>
-        </div>
-      </div>
-
-      <!-- Editor Page -->
-      <div class="editor-page hidden">
-        <div class="container px-6 py-4">
-          <div class="not-editable hidden"></div>
-          <textarea
-            id="editor"
-            class="editor hidden w-full h-[calc(100vh-12rem)] rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-            aria-label="Editor"
-          ></textarea>
-        </div>
-      </div>
-    </div>
+    <!-- Data embedded by server -->
     <template id="index-data">__INDEX_DATA__</template>
+
+    <!-- OpenTimestamps for provenance verification -->
     <script src="https://opentimestamps.org/assets/javascripts/vendor/opentimestamps.min.js"></script>
+
+    <!-- React App Bundle -->
     <script type="module" src="__ASSETS_PREFIX__index.js"></script>
   </body>
 </html>
