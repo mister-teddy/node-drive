@@ -1,22 +1,20 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
+import { observer } from "mobx-react-lite";
 import Uppy from "@uppy/core";
 import { Dashboard } from "@uppy/react";
 import DropTarget from "@uppy/drop-target";
 import XHRUpload from "@uppy/xhr-upload";
 import "@uppy/core/css/style.min.css";
 import "@uppy/dashboard/css/style.min.css";
+import { uppyStore } from "../store/uppyStore";
 
 interface UppyUploaderProps {
   auth: boolean;
   onAuthRequired: () => Promise<void>;
 }
 
-export default function UppyUploader({
-  auth,
-  onAuthRequired,
-}: UppyUploaderProps) {
-  const [isDraggingOver, setIsDraggingOver] = useState(false);
-  const [hasFiles, setHasFiles] = useState(false);
+const UppyUploader = observer(({ auth, onAuthRequired }: UppyUploaderProps) => {
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [uppy] = useState(() => {
     const uppyInstance = new Uppy({
@@ -59,13 +57,13 @@ export default function UppyUploader({
       .use(DropTarget, {
         target: document.body,
         onDragOver: () => {
-          setIsDraggingOver(true);
+          uppyStore.setIsDraggingOver(true);
         },
         onDragLeave: () => {
-          setIsDraggingOver(false);
+          uppyStore.setIsDraggingOver(false);
         },
         onDrop: () => {
-          setIsDraggingOver(false);
+          uppyStore.setIsDraggingOver(false);
         },
       });
 
@@ -88,7 +86,7 @@ export default function UppyUploader({
 
     // Track when files are added or removed
     uppyInstance.on("file-added", () => {
-      setHasFiles(uppyInstance.getFiles().length > 0);
+      uppyStore.setHasFiles(uppyInstance.getFiles().length > 0);
       if (auth) {
         onAuthRequired().catch((err) => {
           console.error("Authentication required:", err);
@@ -97,28 +95,55 @@ export default function UppyUploader({
     });
 
     uppyInstance.on("file-removed", () => {
-      setHasFiles(uppyInstance.getFiles().length > 0);
+      uppyStore.setHasFiles(uppyInstance.getFiles().length > 0);
     });
 
     uppyInstance.on("cancel-all", () => {
-      setHasFiles(false);
+      uppyStore.setHasFiles(false);
     });
 
     return uppyInstance;
   });
 
   useEffect(() => {
+    // Register the file picker trigger function with the store
+    uppyStore.setFilePickerTrigger(() => {
+      fileInputRef.current?.click();
+    });
+
     return () => {
       uppy.cancelAll();
     };
   }, [uppy]);
 
-  const showDashboard = hasFiles && !isDraggingOver;
+  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = event.target.files;
+    if (files) {
+      Array.from(files).forEach((file) => {
+        uppy.addFile({
+          name: file.name,
+          type: file.type,
+          data: file,
+        });
+      });
+    }
+    // Reset the input so the same file can be selected again
+    event.target.value = "";
+  };
 
   return (
     <>
+      {/* Hidden file input for programmatic file selection */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        multiple
+        style={{ display: "none" }}
+        onChange={handleFileChange}
+      />
+
       {/* Full-screen drag overlay */}
-      {isDraggingOver && (
+      {uppyStore.isDraggingOver ? (
         <div
           style={{
             position: "fixed",
@@ -133,46 +158,39 @@ export default function UppyUploader({
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
+            textAlign: "center",
+            color: "#007bff",
           }}
         >
+          <h2>Drop files here to upload</h2>
+        </div>
+      ) : (
+        uppyStore.showDashboard && (
           <div
             style={{
-              fontSize: "32px",
-              fontWeight: 600,
-              color: "#007bff",
-              textAlign: "center",
-              textShadow: "0 2px 4px rgba(0,0,0,0.1)",
+              position: "fixed",
+              bottom: "24px",
+              right: "24px",
+              width: "450px",
+              maxWidth: "calc(100vw - 48px)",
+              zIndex: 1000,
+              borderRadius: "12px",
+              boxShadow: "0 8px 32px rgba(0, 0, 0, 0.15)",
+              overflow: "hidden",
             }}
           >
-            Drop files anywhere to upload
+            <Dashboard
+              uppy={uppy}
+              hideProgressAfterFinish={false}
+              note="Upload files to create digital provenance records with Bitcoin timestamps"
+              proudlyDisplayPoweredByUppy={false}
+              height={400}
+            />
           </div>
-        </div>
-      )}
-
-      {/* Floating Dashboard at bottom right */}
-      {showDashboard && (
-        <div
-          style={{
-            position: "fixed",
-            bottom: "24px",
-            right: "24px",
-            width: "450px",
-            maxWidth: "calc(100vw - 48px)",
-            zIndex: 1000,
-            borderRadius: "12px",
-            boxShadow: "0 8px 32px rgba(0, 0, 0, 0.15)",
-            overflow: "hidden",
-          }}
-        >
-          <Dashboard
-            uppy={uppy}
-            hideProgressAfterFinish={false}
-            note="Upload files to create digital provenance records with Bitcoin timestamps"
-            proudlyDisplayPoweredByUppy={false}
-            height={400}
-          />
-        </div>
+        )
       )}
     </>
   );
-}
+});
+
+export default UppyUploader;

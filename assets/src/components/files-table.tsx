@@ -1,6 +1,6 @@
-import { useState } from 'react';
-import { Table, Button, Space, Empty, Tooltip } from 'antd';
-import type { ColumnsType } from 'antd/es/table';
+import { useState } from "react";
+import { Table, Button, Space, Empty, Tooltip } from "antd";
+import type { ColumnsType } from "antd/es/table";
 import {
   FolderOutlined,
   FileOutlined,
@@ -11,9 +11,9 @@ import {
   DownloadOutlined,
   DeleteOutlined,
   DragOutlined,
-} from '@ant-design/icons';
-import { formatMtime, formatFileSize, formatDirSize } from '../utils';
-import Provenance from './provenance';
+} from "@ant-design/icons";
+import { formatMtime, formatFileSize, formatDirSize } from "../utils";
+import Provenance from "./provenance";
 
 export interface PathItem {
   path_type: "Dir" | "SymlinkDir" | "File" | "SymlinkFile";
@@ -64,29 +64,35 @@ export default function FilesTable({ DATA }: FilesTableProps) {
   const getFileIcon = (file: PathItem) => {
     const isDir = file.path_type.endsWith("Dir");
     if (isDir) {
-      return <FolderOutlined style={{ fontSize: '18px', color: '#1890ff' }} />;
+      return <FolderOutlined style={{ fontSize: "18px", color: "#1890ff" }} />;
     }
 
-    const ext = file.name.split('.').pop()?.toLowerCase() || '';
+    const ext = file.name.split(".").pop()?.toLowerCase() || "";
 
     // Images
-    if (['jpg', 'jpeg', 'png', 'gif', 'svg', 'webp', 'bmp'].includes(ext)) {
-      return <FileImageOutlined style={{ fontSize: '18px', color: '#52c41a' }} />;
+    if (["jpg", "jpeg", "png", "gif", "svg", "webp", "bmp"].includes(ext)) {
+      return (
+        <FileImageOutlined style={{ fontSize: "18px", color: "#52c41a" }} />
+      );
     }
     // Archives
-    if (['zip', 'rar', '7z', 'tar', 'gz'].includes(ext)) {
-      return <FileZipOutlined style={{ fontSize: '18px', color: '#fa8c16' }} />;
+    if (["zip", "rar", "7z", "tar", "gz"].includes(ext)) {
+      return <FileZipOutlined style={{ fontSize: "18px", color: "#fa8c16" }} />;
     }
     // Markdown
-    if (['md', 'markdown'].includes(ext)) {
-      return <FileMarkdownOutlined style={{ fontSize: '18px', color: '#722ed1' }} />;
+    if (["md", "markdown"].includes(ext)) {
+      return (
+        <FileMarkdownOutlined style={{ fontSize: "18px", color: "#722ed1" }} />
+      );
     }
     // Text
-    if (['txt', 'json', 'xml', 'yaml', 'yml'].includes(ext)) {
-      return <FileTextOutlined style={{ fontSize: '18px', color: '#8c8c8c' }} />;
+    if (["txt", "json", "xml", "yaml", "yml"].includes(ext)) {
+      return (
+        <FileTextOutlined style={{ fontSize: "18px", color: "#8c8c8c" }} />
+      );
     }
 
-    return <FileOutlined style={{ fontSize: '18px', color: '#d9d9d9' }} />;
+    return <FileOutlined style={{ fontSize: "18px", color: "#d9d9d9" }} />;
   };
 
   const renderVerificationStamps = (file: PathItem) => {
@@ -113,7 +119,7 @@ export default function FilesTable({ DATA }: FilesTableProps) {
         throw new Error(`HTTP ${res.status}: ${res.statusText}`);
       }
 
-      const newPaths = paths.filter(p => p.name !== file.name);
+      const newPaths = paths.filter((p) => p.name !== file.name);
       setPaths(newPaths);
     } catch (err) {
       const error = err as Error;
@@ -125,7 +131,9 @@ export default function FilesTable({ DATA }: FilesTableProps) {
     const fileUrl = newUrl(file.name);
     const fileUrlObj = new URL(fileUrl);
     const prefix = DATA.uri_prefix?.slice(0, -1) || "";
-    const filePath = decodeURIComponent(fileUrlObj.pathname.slice(prefix.length));
+    const filePath = decodeURIComponent(
+      fileUrlObj.pathname.slice(prefix.length)
+    );
 
     let newPath = prompt("Enter new path", filePath);
     if (!newPath) return;
@@ -167,9 +175,9 @@ export default function FilesTable({ DATA }: FilesTableProps) {
 
   const columns: ColumnsType<PathItem> = [
     {
-      title: 'Name',
-      dataIndex: 'name',
-      key: 'name',
+      title: "Name",
+      dataIndex: "name",
+      key: "name",
       render: (name: string, file: PathItem) => {
         const isDir = file.path_type.endsWith("Dir");
         const url = newUrl(file.name) + (isDir ? "/" : "");
@@ -180,7 +188,7 @@ export default function FilesTable({ DATA }: FilesTableProps) {
             <a
               href={url}
               target={isDir ? undefined : "_blank"}
-              style={{ color: '#1890ff', fontWeight: 500 }}
+              style={{ color: "#1890ff", fontWeight: 500 }}
             >
               {name}
             </a>
@@ -189,8 +197,8 @@ export default function FilesTable({ DATA }: FilesTableProps) {
       },
     },
     {
-      title: 'Verification',
-      key: 'verification',
+      title: "Verification",
+      key: "verification",
       width: 150,
       render: (_: unknown, file: PathItem) => {
         const isDir = file.path_type.endsWith("Dir");
@@ -198,29 +206,29 @@ export default function FilesTable({ DATA }: FilesTableProps) {
       },
     },
     {
-      title: 'Size',
-      key: 'size',
+      title: "Size",
+      key: "size",
       width: 120,
       render: (_: unknown, file: PathItem) => {
         const isDir = file.path_type.endsWith("Dir");
         const sizeDisplay = isDir
           ? formatDirSize(file.size)
           : formatFileSize(file.size).join(" ");
-        return <span style={{ color: '#8c8c8c' }}>{sizeDisplay}</span>;
+        return <span style={{ color: "#8c8c8c" }}>{sizeDisplay}</span>;
       },
     },
     {
-      title: 'Modified',
-      dataIndex: 'mtime',
-      key: 'mtime',
+      title: "Modified",
+      dataIndex: "mtime",
+      key: "mtime",
       width: 180,
       render: (mtime: number) => (
-        <span style={{ color: '#8c8c8c' }}>{formatMtime(mtime)}</span>
+        <span style={{ color: "#8c8c8c" }}>{formatMtime(mtime)}</span>
       ),
     },
     {
-      title: 'Actions',
-      key: 'actions',
+      title: "Actions",
+      key: "actions",
       width: 150,
       render: (_: unknown, file: PathItem) => {
         const isDir = file.path_type.endsWith("Dir");
@@ -269,30 +277,30 @@ export default function FilesTable({ DATA }: FilesTableProps) {
   if (!paths || paths.length === 0) {
     return (
       <Empty
-        image={<FolderOutlined style={{ fontSize: 64, color: '#d9d9d9' }} />}
+        image={<FolderOutlined style={{ fontSize: 64, color: "#d9d9d9" }} />}
         description={
           <div>
             <div style={{ fontSize: 16, fontWeight: 500, marginBottom: 8 }}>
               This folder is empty
             </div>
-            <div style={{ fontSize: 14, color: '#8c8c8c' }}>
+            <div style={{ fontSize: 14, color: "#8c8c8c" }}>
               Upload files or create a new folder to get started
             </div>
           </div>
         }
-        style={{ margin: '40px 0' }}
+        style={{ margin: "40px 0" }}
       />
     );
   }
 
   return (
-    <div style={{ padding: '0 24px' }}>
+    <div style={{ padding: "0 24px 24px" }}>
       <Table
         columns={columns}
         dataSource={paths}
         rowKey="name"
         pagination={false}
-        style={{ background: '#fff' }}
+        style={{ background: "#fff" }}
       />
     </div>
   );

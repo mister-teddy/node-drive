@@ -1,10 +1,11 @@
-import { useState, useEffect } from 'react';
-import { Layout } from 'antd';
-import FilesTable from './components/files-table';
-import { Header } from './components/layout/header';
-import { Breadcrumb } from './components/layout/breadcrumb';
-import UppyUploader from './components/uppy-uploader';
-import { decodeBase64 } from './utils';
+import { useState, useEffect } from "react";
+import { Flex, Layout, Typography } from "antd";
+import FilesTable from "./components/files-table";
+import { Header } from "./components/layout/header";
+import { Breadcrumb } from "./components/layout/breadcrumb";
+import UppyUploader from "./components/uppy-uploader";
+import { decodeBase64 } from "./utils";
+import { uppyStore } from "./store/uppyStore";
 
 const { Content } = Layout;
 
@@ -121,33 +122,16 @@ function App() {
     }
   };
 
-  const createFile = async (name: string) => {
-    const url = newUrl(name);
-    try {
-      await checkAuth();
-      const res = await fetch(url, {
-        method: "PUT",
-        body: "",
-      });
-      if (!(res.status >= 200 && res.status < 300)) {
-        throw new Error((await res.text()) || `Invalid status ${res.status}`);
-      }
-      window.location.href = url + "?edit";
-    } catch (err) {
-      alert(`Cannot create file \`${name}\`, ${(err as Error).message}`);
-    }
-  };
-
   if (loading) {
-    return <div style={{ padding: '24px' }}>Loading...</div>;
+    return <div style={{ padding: "24px" }}>Loading...</div>;
   }
 
   if (!data) {
-    return <div style={{ padding: '24px' }}>No data available</div>;
+    return <div style={{ padding: "24px" }}>No data available</div>;
   }
 
   return (
-    <Layout style={{ minHeight: '100vh', background: '#f5f5f5' }}>
+    <Layout style={{ minHeight: "100vh", background: "#f5f5f5" }}>
       <Header
         auth={data.auth}
         user={data.user}
@@ -160,7 +144,7 @@ function App() {
         onLogin={async () => {
           try {
             await checkAuth("login");
-          } catch { }
+          } catch {}
           window.location.reload();
         }}
         onLogout={logout}
@@ -169,13 +153,17 @@ function App() {
           if (name) createFolder(name);
         }}
         onNewFile={() => {
-          const name = prompt("Enter file name");
-          if (name) createFile(name);
+          uppyStore.openFilePicker();
         }}
       />
 
-      <Content style={{ padding: '0' }}>
-        <Breadcrumb href={data.href} uriPrefix={data.uri_prefix} />
+      <Content style={{ padding: "0" }}>
+        <Flex justify="space-between" align="center" gap="16px">
+          <Breadcrumb href={data.href} uriPrefix={data.uri_prefix} />
+          <Typography.Text type="secondary" style={{ padding: "0 24px" }}>
+            Drop files anywhere to upload
+          </Typography.Text>
+        </Flex>
 
         {data.kind === "Index" && (
           <>
