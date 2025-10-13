@@ -575,8 +575,18 @@ impl Server {
 
         // Create provenance mint event if this is a new file
         if status == StatusCode::CREATED {
+            info!(
+                "File uploaded successfully: {} ({} bytes)",
+                path.display(),
+                size
+            );
             match self.create_mint_event(path).await {
                 Ok(mint_response) => {
+                    info!(
+                        "Mint event created for: {} (hash: {})",
+                        mint_response.filename,
+                        &mint_response.sha256[..8]
+                    );
                     // Return JSON response with mint event data including OTS
                     res.headers_mut().insert(
                         hyper::header::CONTENT_TYPE,
@@ -585,6 +595,7 @@ impl Server {
                     *res.body_mut() = body_full(serde_json::to_string(&mint_response)?);
                 }
                 Err(e) => {
+                    error!("Failed to create mint event for {}: {}", path.display(), e);
                     let msg = format!("File uploaded, but failed to create mint event: {e:?}");
                     *res.body_mut() = body_full(msg);
                 }
