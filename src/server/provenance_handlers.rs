@@ -337,7 +337,8 @@ async fn sha256_file(path: &Path) -> Result<String> {
     Ok(format!("{result:x}"))
 }
 
-/// Try to get cached artifact_id from XATTR
+/// Try to get cached artifact_id from XATTR (Unix only)
+#[cfg(unix)]
 fn get_artifact_id_from_xattr(path: &Path) -> Option<i64> {
     xattr::get(path, "user.provenance.artifact_id")
         .ok()
@@ -346,7 +347,14 @@ fn get_artifact_id_from_xattr(path: &Path) -> Option<i64> {
         .and_then(|s| s.parse::<i64>().ok())
 }
 
-/// Store artifact_id in XATTR for future lookups
+/// No-op on non-Unix platforms (XATTR not supported)
+#[cfg(not(unix))]
+fn get_artifact_id_from_xattr(_path: &Path) -> Option<i64> {
+    None
+}
+
+/// Store artifact_id in XATTR for future lookups (Unix only)
+#[cfg(unix)]
 pub fn set_artifact_id_in_xattr(path: &Path, artifact_id: i64) {
     if let Err(e) = xattr::set(
         path,
@@ -367,12 +375,25 @@ pub fn set_artifact_id_in_xattr(path: &Path, artifact_id: i64) {
     }
 }
 
-/// Clear artifact_id from XATTR (call when file is modified or deleted)
+/// No-op on non-Unix platforms (XATTR not supported)
+#[cfg(not(unix))]
+pub fn set_artifact_id_in_xattr(_path: &Path, _artifact_id: i64) {
+    // XATTR not supported on this platform - cache disabled
+}
+
+/// Clear artifact_id from XATTR (call when file is modified or deleted) (Unix only)
+#[cfg(unix)]
 pub fn clear_artifact_id_from_xattr(path: &Path) {
     if let Err(e) = xattr::remove(path, "user.provenance.artifact_id") {
         // Ignore errors - file might not have had XATTR, or filesystem doesn't support it
         debug!("Could not remove XATTR from {}: {}", path.display(), e);
     }
+}
+
+/// No-op on non-Unix platforms (XATTR not supported)
+#[cfg(not(unix))]
+pub fn clear_artifact_id_from_xattr(_path: &Path) {
+    // XATTR not supported on this platform - nothing to clear
 }
 
 pub async fn compute_stamp_status(
