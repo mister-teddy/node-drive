@@ -337,18 +337,86 @@ async fn sha256_file(path: &Path) -> Result<String> {
     Ok(format!("{result:x}"))
 }
 
+/// Try to get cached artifact_id from XATTR
+fn get_artifact_id_from_xattr(path: &Path) -> Option<i64> {
+    xattr::get(path, "user.provenance.artifact_id")
+        .ok()
+        .flatten()
+        .and_then(|bytes| String::from_utf8(bytes).ok())
+        .and_then(|s| s.parse::<i64>().ok())
+}
+
+/// Store artifact_id in XATTR for future lookups
+pub fn set_artifact_id_in_xattr(path: &Path, artifact_id: i64) {
+    if let Err(e) = xattr::set(
+        path,
+        "user.provenance.artifact_id",
+        artifact_id.to_string().as_bytes(),
+    ) {
+        debug!(
+            "Failed to set XATTR for {}: {} (filesystem may not support extended attributes)",
+            path.display(),
+            e
+        );
+    } else {
+        debug!(
+            "Cached artifact_id {} in XATTR for {}",
+            artifact_id,
+            path.display()
+        );
+    }
+}
+
+/// Clear artifact_id from XATTR (call when file is modified or deleted)
+pub fn clear_artifact_id_from_xattr(path: &Path) {
+    if let Err(e) = xattr::remove(path, "user.provenance.artifact_id") {
+        // Ignore errors - file might not have had XATTR, or filesystem doesn't support it
+        debug!("Could not remove XATTR from {}: {}", path.display(), e);
+    }
+}
+
 pub async fn compute_stamp_status(
     path: &Path,
     provenance_db: &ProvenanceDb,
 ) -> Option<StampStatus> {
     use crate::ots_stamper;
 
-    // Compute file hash
-    let file_data = tokio::fs::read(path).await.ok()?;
-    let mut hasher = Sha256::new();
-    hasher.update(&file_data);
-    let hash_bytes = hasher.finalize();
-    let sha256_hex = hex::encode(hash_bytes);
+    // Try fast path: get artifact_id from XATTR cache
+    let sha256_hex = if let Some(cached_artifact_id) = get_artifact_id_from_xattr(path) {
+        // XATTR cache hit - get hash from database using artifact_id
+        debug!("XATTR cache hit for {}", path.display());
+        match provenance_db.get_artifact_by_id(cached_artifact_id) {
+            Ok(Some((_filename, hash, _size))) => {
+                debug!("Retrieved hash from DB: {}", &hash[..8]);
+                hash
+            }
+            _ => {
+                // XATTR points to non-existent artifact, clear stale cache and fall through
+                debug!("Stale XATTR cache for {} - clearing", path.display());
+                clear_artifact_id_from_xattr(path);
+                // Fall through to slow path
+                None?
+            }
+        }
+    } else {
+        // XATTR cache miss - need to hash the file
+        debug!("XATTR cache miss for {} - computing hash", path.display());
+        let sha256_hex = sha256_file(path).await.ok()?;
+
+        // Get artifact from database by hash
+        let (artifact_id, _) = match provenance_db.get_artifact(&sha256_hex) {
+            Ok(Some(result)) => result,
+            _ => {
+                // File not in provenance system yet
+                return None;
+            }
+        };
+
+        // Populate XATTR cache for next time
+        set_artifact_id_in_xattr(path, artifact_id);
+
+        sha256_hex
+    };
 
     // Get manifest from database
     let manifest = match provenance_db

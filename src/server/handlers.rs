@@ -540,6 +540,12 @@ impl Server {
         res: &mut Response,
     ) -> Result<()> {
         ensure_path_parent(path).await?;
+
+        // Clear XATTR cache when overwriting (not when creating new file)
+        if upload_offset.is_none() && fs::metadata(path).await.is_ok() {
+            provenance_handlers::clear_artifact_id_from_xattr(path);
+        }
+
         let (mut file, status) = match upload_offset {
             None => (fs::File::create(path).await?, StatusCode::CREATED),
             Some(offset) if offset == size => (
@@ -606,6 +612,11 @@ impl Server {
     }
 
     pub async fn handle_delete(&self, path: &Path, is_dir: bool, res: &mut Response) -> Result<()> {
+        // Clear XATTR cache for files before deletion
+        if !is_dir {
+            provenance_handlers::clear_artifact_id_from_xattr(path);
+        }
+
         match is_dir {
             true => fs::remove_dir_all(path).await?,
             false => fs::remove_file(path).await?,
@@ -1534,6 +1545,9 @@ impl Server {
                 actors: &actors,
                 signatures: &signatures,
             })?;
+
+        // Populate XATTR cache for fast future lookups
+        provenance_handlers::set_artifact_id_in_xattr(path, artifact_id);
 
         // Verify the event we just created
         let created_event = Event {

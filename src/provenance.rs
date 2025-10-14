@@ -238,6 +238,25 @@ impl ProvenanceDb {
         }
     }
 
+    /// Get artifact by ID (for XATTR cache lookups)
+    pub fn get_artifact_by_id(&self, artifact_id: i64) -> Result<Option<(String, String, u64)>> {
+        let conn = self.conn.lock().unwrap();
+
+        let mut stmt =
+            conn.prepare("SELECT file_name, sha256_hex, size_bytes FROM artifacts WHERE id = ?1")?;
+
+        let mut rows = stmt.query(params![artifact_id])?;
+
+        if let Some(row) = rows.next()? {
+            let file_name: String = row.get(0)?;
+            let sha256_hex: String = row.get(1)?;
+            let size_bytes: u64 = row.get(2)?;
+            Ok(Some((file_name, sha256_hex, size_bytes)))
+        } else {
+            Ok(None)
+        }
+    }
+
     /// Insert a new provenance event
     pub fn insert_event(&self, args: InsertEventArgs) -> Result<i64> {
         let mut conn = self.conn.lock().unwrap();
