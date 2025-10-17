@@ -7,13 +7,13 @@ use hyper::{
     StatusCode,
 };
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::path::Path;
-use tokio::fs;
 
+use crate::file_utils;
 use crate::http_utils::body_full;
 use crate::provenance::ProvenanceDb;
+use crate::provenance_utils;
 
 use super::path_item::StampStatus;
 use super::response_utils::{
@@ -28,15 +28,8 @@ pub async fn handle_provenance_manifest(
     provenance_db: &ProvenanceDb,
     res: &mut Response,
 ) -> Result<()> {
-    // Compute file hash
-    let file_data = tokio::fs::read(path).await?;
-    let mut hasher = Sha256::new();
-    hasher.update(&file_data);
-    let hash_bytes = hasher.finalize();
-    let sha256_hex = hex::encode(hash_bytes);
-
-    // Retrieve manifest from database
-    match provenance_db.get_manifest(&sha256_hex)? {
+    // Get manifest using unified utility function
+    match provenance_utils::get_manifest_for_file(provenance_db, path).await? {
         Some(manifest) => {
             let json = serde_json::to_string_pretty(&manifest)?;
             res.headers_mut()
@@ -69,21 +62,15 @@ pub async fn handle_ots_upload(
         .map_err(|e| anyhow!("Failed to read request body: {}", e))?
         .to_bytes();
 
-    // Compute file hash
-    let file_data = tokio::fs::read(path).await?;
-    let mut hasher = Sha256::new();
-    hasher.update(&file_data);
-    let hash_bytes = hasher.finalize();
-    let sha256_hex = hex::encode(hash_bytes);
-
-    // Get artifact from database
-    let (artifact_id, _) = match provenance_db.get_artifact(&sha256_hex)? {
-        Some(result) => result,
-        None => {
-            status_not_found(res);
-            return Ok(());
-        }
-    };
+    // Get artifact from database using unified utility
+    let (artifact_id, _, _) =
+        match provenance_utils::get_artifact_by_path(provenance_db, path).await? {
+            Some(result) => result,
+            None => {
+                status_not_found(res);
+                return Ok(());
+            }
+        };
 
     // Get the latest event for this artifact
     let next_index = provenance_db.get_next_event_index(artifact_id)?;
@@ -109,15 +96,8 @@ pub async fn handle_ots_download(
     provenance_db: &ProvenanceDb,
     res: &mut Response,
 ) -> Result<()> {
-    // Compute file hash
-    let file_data = tokio::fs::read(path).await?;
-    let mut hasher = Sha256::new();
-    hasher.update(&file_data);
-    let hash_bytes = hasher.finalize();
-    let sha256_hex = hex::encode(hash_bytes);
-
-    // Get manifest from database
-    let manifest = match provenance_db.get_manifest(&sha256_hex)? {
+    // Get manifest using unified utility
+    let manifest = match provenance_utils::get_manifest_for_file(provenance_db, path).await? {
         Some(m) => m,
         None => {
             status_not_found(res);
@@ -137,10 +117,7 @@ pub async fn handle_ots_download(
         .map_err(|e| anyhow!("Failed to decode OTS proof: {}", e))?;
 
     // Set response headers for download
-    let filename = path
-        .file_name()
-        .and_then(|n| n.to_str())
-        .ok_or_else(|| anyhow!("Invalid filename"))?;
+    let filename = file_utils::extract_filename(path)?;
     let ots_filename = format!("{}.ots", filename);
     res.headers_mut().insert(
         CONTENT_TYPE,
@@ -155,6 +132,116 @@ pub async fn handle_ots_download(
     }
 
     *res.body_mut() = body_full(ots_bytes);
+    Ok(())
+}
+
+pub async fn handle_ots_info(
+    path: &Path,
+    head_only: bool,
+    provenance_db: &ProvenanceDb,
+    res: &mut Response,
+) -> Result<()> {
+    use crate::ots_stamper;
+
+    // Get artifact and manifest from database using unified utility
+    let (artifact_id, _, sha256_hex) =
+        match provenance_utils::get_artifact_by_path(provenance_db, path).await? {
+            Some(result) => result,
+            None => {
+                status_not_found(res);
+                return Ok(());
+            }
+        };
+
+    // Get manifest using path-based lookup
+    let manifest = match provenance_utils::get_manifest_for_file(provenance_db, path).await? {
+        Some(m) => m,
+        None => {
+            status_not_found(res);
+            return Ok(());
+        }
+    };
+
+    // Get the latest event's OTS proof
+    if manifest.events.is_empty() {
+        status_not_found(res);
+        return Ok(());
+    }
+
+    let event_index = manifest.events.len().saturating_sub(1) as u32;
+    let latest_event = &manifest.events[event_index as usize];
+    let mut ots_proof_b64 = latest_event.ots_proof_b64.clone();
+
+    // Try to upgrade the OTS proof if it's not already verified
+    // This ensures we always show the latest, upgraded proof with Bitcoin attestations
+    if latest_event.verified_chain.is_none() {
+        match ots_stamper::verify_timestamp(&ots_proof_b64, &sha256_hex).await {
+            Ok(verification_response) => {
+                // If timestamp was upgraded, use the upgraded version and save it
+                if let Some(ref upgraded_ots_b64) = verification_response.upgraded_ots_b64 {
+                    ots_proof_b64 = upgraded_ots_b64.clone();
+
+                    // Save upgraded OTS to database
+                    if let Some(first_result) = verification_response.results.first() {
+                        let _ = provenance_db.update_ots_proof_and_verification(
+                            artifact_id,
+                            event_index,
+                            upgraded_ots_b64,
+                            &first_result.chain,
+                            first_result.timestamp as i64,
+                            first_result.height,
+                        );
+                        info!(
+                            "Upgraded OTS proof for {} before displaying info",
+                            sha256_hex
+                        );
+                    } else {
+                        let _ = provenance_db.update_ots_proof(
+                            artifact_id,
+                            event_index,
+                            upgraded_ots_b64,
+                        );
+                    }
+                } else if let Some(first_result) = verification_response.results.first() {
+                    // No upgrade needed, but cache verification results
+                    let _ = provenance_db.update_verification_result(
+                        artifact_id,
+                        event_index,
+                        &first_result.chain,
+                        first_result.timestamp as i64,
+                        first_result.height,
+                    );
+                }
+            }
+            Err(e) => {
+                // Upgrade failed, but we can still show the current proof
+                warn!("Failed to upgrade OTS proof for {}: {}", sha256_hex, e);
+            }
+        }
+    }
+
+    // Generate OTS info from the (possibly upgraded) proof
+    let ots_info = match ots_stamper::generate_ots_info(&ots_proof_b64) {
+        Ok(info) => info,
+        Err(e) => {
+            *res.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
+            *res.body_mut() = body_full(format!("Failed to parse OTS proof: {}", e));
+            return Ok(());
+        }
+    };
+
+    // Return JSON response
+    let json = serde_json::to_string_pretty(&ots_info)?;
+    res.headers_mut()
+        .typed_insert(ContentType::from(mime_guess::mime::APPLICATION_JSON));
+    res.headers_mut()
+        .typed_insert(ContentLength(json.len() as u64));
+
+    if head_only {
+        return Ok(());
+    }
+
+    *res.body_mut() = body_full(json);
     Ok(())
 }
 
@@ -205,65 +292,9 @@ pub async fn handle_ots_verify(
     // Convert result to JSON response matching JS library format
     let response = match result {
         Ok(verification_response) => {
-            // If timestamp was upgraded, save it back to the database along with verification results
-            if let Some(ref upgraded_ots_b64) = verification_response.upgraded_ots_b64 {
-                // Get manifest and update the latest event's OTS proof
-                if let Ok(Some(manifest)) = provenance_db.get_manifest(&verify_req.artifact_sha256)
-                {
-                    if let Some((artifact_id, _)) = provenance_db
-                        .get_artifact(&verify_req.artifact_sha256)
-                        .ok()
-                        .flatten()
-                    {
-                        let event_index = manifest.events.len().saturating_sub(1) as u32;
-
-                        // Save both upgraded OTS and verification results if available
-                        if let Some(first_result) = verification_response.results.first() {
-                            let _ = provenance_db.update_ots_proof_and_verification(
-                                artifact_id,
-                                event_index,
-                                upgraded_ots_b64,
-                                &first_result.chain,
-                                first_result.timestamp as i64,
-                                first_result.height,
-                            );
-                            info!(
-                                "Saved upgraded OTS proof and verification results for artifact {}",
-                                &verify_req.artifact_sha256
-                            );
-                        } else {
-                            let _ = provenance_db.update_ots_proof(
-                                artifact_id,
-                                event_index,
-                                upgraded_ots_b64,
-                            );
-                            info!(
-                                "Saved upgraded OTS proof for artifact {}",
-                                &verify_req.artifact_sha256
-                            );
-                        }
-                    }
-                }
-            } else if let Some(first_result) = verification_response.results.first() {
-                // No upgrade, but cache verification results
-                if let Ok(Some(manifest)) = provenance_db.get_manifest(&verify_req.artifact_sha256)
-                {
-                    if let Some((artifact_id, _)) = provenance_db
-                        .get_artifact(&verify_req.artifact_sha256)
-                        .ok()
-                        .flatten()
-                    {
-                        let event_index = manifest.events.len().saturating_sub(1) as u32;
-                        let _ = provenance_db.update_verification_result(
-                            artifact_id,
-                            event_index,
-                            &first_result.chain,
-                            first_result.timestamp as i64,
-                            first_result.height,
-                        );
-                    }
-                }
-            }
+            // NOTE: We don't save verification results here since this endpoint
+            // doesn't have access to file path. Verification results are saved
+            // via the per-file OTS info endpoint instead.
 
             // Group results by chain
             let mut results_map: HashMap<String, ChainResult> = HashMap::new();
@@ -306,7 +337,7 @@ pub async fn handle_ots_verify(
 }
 
 pub async fn handle_hash_file(path: &Path, head_only: bool, res: &mut Response) -> Result<()> {
-    let output = sha256_file(path).await?;
+    let output = file_utils::sha256_file_hash(path).await?;
     res.headers_mut()
         .typed_insert(ContentType::from(mime_guess::mime::TEXT_HTML_UTF_8));
     res.headers_mut()
@@ -318,130 +349,29 @@ pub async fn handle_hash_file(path: &Path, head_only: bool, res: &mut Response) 
     Ok(())
 }
 
-async fn sha256_file(path: &Path) -> Result<String> {
-    use tokio::io::AsyncReadExt;
-
-    let mut file = fs::File::open(path).await?;
-    let mut hasher = Sha256::new();
-    let mut buffer = [0u8; 8192];
-
-    loop {
-        let bytes_read = file.read(&mut buffer).await?;
-        if bytes_read == 0 {
-            break;
-        }
-        hasher.update(&buffer[..bytes_read]);
-    }
-
-    let result = hasher.finalize();
-    Ok(format!("{result:x}"))
-}
-
-/// Try to get cached artifact_id from XATTR (Unix only)
-#[cfg(unix)]
-fn get_artifact_id_from_xattr(path: &Path) -> Option<i64> {
-    xattr::get(path, "user.provenance.artifact_id")
-        .ok()
-        .flatten()
-        .and_then(|bytes| String::from_utf8(bytes).ok())
-        .and_then(|s| s.parse::<i64>().ok())
-}
-
-/// No-op on non-Unix platforms (XATTR not supported)
-#[cfg(not(unix))]
-fn get_artifact_id_from_xattr(_path: &Path) -> Option<i64> {
-    None
-}
-
-/// Store artifact_id in XATTR for future lookups (Unix only)
-#[cfg(unix)]
-pub fn set_artifact_id_in_xattr(path: &Path, artifact_id: i64) {
-    if let Err(e) = xattr::set(
-        path,
-        "user.provenance.artifact_id",
-        artifact_id.to_string().as_bytes(),
-    ) {
-        debug!(
-            "Failed to set XATTR for {}: {} (filesystem may not support extended attributes)",
-            path.display(),
-            e
-        );
-    } else {
-        debug!(
-            "Cached artifact_id {} in XATTR for {}",
-            artifact_id,
-            path.display()
-        );
-    }
-}
-
-/// No-op on non-Unix platforms (XATTR not supported)
-#[cfg(not(unix))]
-pub fn set_artifact_id_in_xattr(_path: &Path, _artifact_id: i64) {
-    // XATTR not supported on this platform - cache disabled
-}
-
-/// Clear artifact_id from XATTR (call when file is modified or deleted) (Unix only)
-#[cfg(unix)]
-pub fn clear_artifact_id_from_xattr(path: &Path) {
-    if let Err(e) = xattr::remove(path, "user.provenance.artifact_id") {
-        // Ignore errors - file might not have had XATTR, or filesystem doesn't support it
-        debug!("Could not remove XATTR from {}: {}", path.display(), e);
-    }
-}
-
-/// No-op on non-Unix platforms (XATTR not supported)
-#[cfg(not(unix))]
-pub fn clear_artifact_id_from_xattr(_path: &Path) {
-    // XATTR not supported on this platform - nothing to clear
-}
-
 pub async fn compute_stamp_status(
     path: &Path,
     provenance_db: &ProvenanceDb,
 ) -> Option<StampStatus> {
     use crate::ots_stamper;
 
-    // Try fast path: get artifact_id from XATTR cache
-    let sha256_hex = if let Some(cached_artifact_id) = get_artifact_id_from_xattr(path) {
-        // XATTR cache hit - get hash from database using artifact_id
-        debug!("XATTR cache hit for {}", path.display());
-        match provenance_db.get_artifact_by_id(cached_artifact_id) {
-            Ok(Some((_filename, hash, _size))) => {
-                debug!("Retrieved hash from DB: {}", &hash[..8]);
-                hash
-            }
-            _ => {
-                // XATTR points to non-existent artifact, clear stale cache and fall through
-                debug!("Stale XATTR cache for {} - clearing", path.display());
-                clear_artifact_id_from_xattr(path);
-                // Fall through to slow path
-                None?
-            }
-        }
-    } else {
-        // XATTR cache miss - need to hash the file
-        debug!("XATTR cache miss for {} - computing hash", path.display());
-        let sha256_hex = sha256_file(path).await.ok()?;
-
-        // Get artifact from database by hash
-        let (artifact_id, _) = match provenance_db.get_artifact(&sha256_hex) {
-            Ok(Some(result)) => result,
-            _ => {
+    // Get artifact from database by file path
+    let (artifact_id, sha256_hex) =
+        match provenance_utils::get_artifact_by_path(provenance_db, path)
+            .await
+            .ok()?
+        {
+            Some((id, artifact, hash)) => (id, hash),
+            None => {
                 // File not in provenance system yet
                 return None;
             }
         };
 
-        // Populate XATTR cache for next time
-        set_artifact_id_in_xattr(path, artifact_id);
-
-        sha256_hex
-    };
-
     // Get manifest from database
+    let path_str = path.to_str()?;
     let manifest = match provenance_db
-        .get_manifest(&sha256_hex)
+        .get_manifest_by_path(path_str)
         .inspect_err(|e| {
             warn!("Failed to get manifest for {}: {}", sha256_hex, e);
         })
@@ -490,8 +420,7 @@ pub async fn compute_stamp_status(
     .await
     {
         Ok(verification_response) => {
-            // Get artifact_id for database updates
-            let (artifact_id, _) = provenance_db.get_artifact(&sha256_hex).ok().flatten()?;
+            // artifact_id already obtained above
             let event_index = manifest.events.len().saturating_sub(1) as u32;
 
             // If timestamp was upgraded AND we have verification results, save both

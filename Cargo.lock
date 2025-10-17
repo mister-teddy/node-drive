@@ -1439,7 +1439,7 @@ dependencies = [
 
 [[package]]
 name = "node-drive"
-version = "1.11.7"
+version = "1.11.8"
 dependencies = [
  "alphanumeric-sort",
  "anyhow",
@@ -1497,7 +1497,6 @@ dependencies = [
  "urlencoding",
  "uuid",
  "walkdir",
- "xattr",
  "xml-rs",
 ]
 
@@ -2969,16 +2968,6 @@ name = "writeable"
 version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ea2f10b9bb0928dfb1b42b65e1f9e36f7f54dbdf08457afefb38afcdec4fa2bb"
-
-[[package]]
-name = "xattr"
-version = "1.6.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "32e45ad4206f6d2479085147f02bc2ef834ac85886624a23575ae137c8aa8156"
-dependencies = [
- "libc",
- "rustix",
-]
 
 [[package]]
 name = "xml"

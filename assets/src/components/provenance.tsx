@@ -79,6 +79,11 @@ export default function Provenance({
     [key: string]: boolean;
   }>({});
   const [isFlipped, setIsFlipped] = useState(false);
+  const [otsInfo, setOtsInfo] = useState<{
+    file_hash: string;
+    operations: string[];
+  } | null>(null);
+  const [isLoadingOtsInfo, setIsLoadingOtsInfo] = useState(false);
   const isPending =
     typeof stampStatus === "string" || (stampStatus && !stampStatus.success);
 
@@ -140,9 +145,38 @@ export default function Provenance({
     }
   };
 
+  /**
+   * Fetch OTS info for this file
+   */
+  const fetchOtsInfo = async () => {
+    if (isDir || isLoadingOtsInfo || otsInfo) {
+      return;
+    }
+
+    setIsLoadingOtsInfo(true);
+
+    try {
+      const url = newUrl(fileName) + "?ots-info";
+      const response = await fetch(url);
+
+      if (response.ok) {
+        const info = await response.json();
+        setOtsInfo(info);
+      }
+    } catch (error) {
+      console.error(`Failed to fetch OTS info for ${fileName}:`, error);
+    } finally {
+      setIsLoadingOtsInfo(false);
+    }
+  };
+
   const handleModalOpen = () => {
     if (!manifest && !isLoading) {
       fetchProvenanceData();
+    }
+
+    if (!otsInfo && !isLoadingOtsInfo) {
+      fetchOtsInfo();
     }
 
     // Use View Transition API for zoom animation if available
@@ -540,6 +574,158 @@ export default function Provenance({
                 </List.Item>
               )}
             />
+          </div>
+        ),
+      },
+      {
+        key: "ots-info",
+        label: "Timestamp Proof",
+        children: (
+          <div onClick={(e) => e.stopPropagation()}>
+            {isLoadingOtsInfo ? (
+              <div style={{ textAlign: "center", padding: "20px" }}>
+                <Spin />
+              </div>
+            ) : otsInfo ? (
+              <div style={{ fontSize: 12 }}>
+                {/* Show verification status if available */}
+                {stampStatusObj?.success && stampStatusObj.results ? (
+                  <Alert
+                    message="✅ Verified on Bitcoin Blockchain"
+                    description={`This file's timestamp was confirmed in Bitcoin block #${stampStatusObj.results.bitcoin.height} on ${new Date(
+                      stampStatusObj.results.bitcoin.timestamp * 1000
+                    ).toLocaleString("en-US", {
+                      month: "long",
+                      day: "numeric",
+                      year: "numeric",
+                      hour: "numeric",
+                      minute: "numeric",
+                    })}. The proof below shows how your file connects to this block.`}
+                    type="success"
+                    showIcon
+                    style={{ fontSize: 11, marginBottom: 12 }}
+                  />
+                ) : (
+                  <Alert
+                    message="⏳ Pending Bitcoin Confirmation"
+                    description="Your file has been submitted for timestamping. The proof will be complete once it's included in a Bitcoin block (usually within a few hours)."
+                    type="warning"
+                    showIcon
+                    style={{ fontSize: 11, marginBottom: 12 }}
+                  />
+                )}
+
+                <div style={{ marginBottom: 16 }}>
+                  <Text strong style={{ fontSize: 12 }}>Starting Point:</Text>
+                  <br />
+                  <Text type="secondary" style={{ fontSize: 11 }}>
+                    Your file's unique fingerprint
+                  </Text>
+                  <br />
+                  <Text
+                    code
+                    style={{
+                      fontSize: 10,
+                      wordBreak: "break-all",
+                      display: "block",
+                      marginTop: 4
+                    }}
+                  >
+                    {otsInfo.file_hash}
+                  </Text>
+                </div>
+
+                <div>
+                  <Text strong style={{ fontSize: 12 }}>Proof Steps:</Text>
+                  <br />
+                  <Text type="secondary" style={{ fontSize: 11 }}>
+                    How we get from your file to the blockchain
+                  </Text>
+                  <div
+                    style={{
+                      fontFamily: "monospace",
+                      fontSize: 11,
+                      lineHeight: "1.6",
+                      whiteSpace: "pre-wrap",
+                      backgroundColor: "#f5f5f5",
+                      padding: "12px",
+                      borderRadius: "4px",
+                      marginTop: "8px",
+                      maxHeight: "300px",
+                      overflow: "auto",
+                      border: "1px solid #e8e8e8"
+                    }}
+                  >
+                    {otsInfo.operations.map((op, idx) => {
+                      // Make operations more readable
+                      let displayOp = op;
+
+                      // Simplify technical operations
+                      if (op.includes("→ sha256") && !op.includes("append") && !op.includes("prepend")) {
+                        displayOp = op.replace("→ sha256", "🔐 Hash with SHA-256");
+                      } else if (op.includes("→ append")) {
+                        displayOp = op.replace("→ append", "➕ Combine with");
+                      } else if (op.includes("→ prepend")) {
+                        displayOp = op.replace("→ prepend", "➕ Combine with");
+                      } else if (op.includes("✓ Bitcoin block attestation")) {
+                        displayOp = op.replace("✓", "✅");
+                        displayOp = displayOp.replace("attestation", "");
+                      } else if (op.includes("⏳ Pending attestation")) {
+                        displayOp = op.replace("attestation:", "confirmation:");
+                      }
+
+                      // Style Bitcoin confirmations differently
+                      const isBitcoinConfirmation = displayOp.includes("✅ Bitcoin");
+                      const isPendingOp = displayOp.includes("⏳");
+
+                      return (
+                        <div
+                          key={idx}
+                          style={{
+                            color: isBitcoinConfirmation ? "#52c41a" : isPendingOp ? "#fa8c16" : "inherit",
+                            fontWeight: isBitcoinConfirmation ? 600 : "normal",
+                          }}
+                        >
+                          {displayOp}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {stampStatusObj?.success && stampStatusObj.results ? (
+                  <Alert
+                    message="What does this mean?"
+                    description={`This proof is permanent and cryptographically verifiable. Anyone can confirm that this exact file existed on ${new Date(
+                      stampStatusObj.results.bitcoin.timestamp * 1000
+                    ).toLocaleDateString("en-US", {
+                      month: "long",
+                      day: "numeric",
+                      year: "numeric",
+                    })} by checking Bitcoin block #${stampStatusObj.results.bitcoin.height}.`}
+                    type="info"
+                    showIcon
+                    style={{ fontSize: 11, marginTop: 12 }}
+                  />
+                ) : (
+                  <Alert
+                    message="What happens next?"
+                    description="Once your timestamp is included in a Bitcoin block, you'll see a green checkmark above. The pending calendar servers shown above are collecting timestamps to batch them into the blockchain."
+                    type="info"
+                    showIcon
+                    style={{ fontSize: 11, marginTop: 12 }}
+                  />
+                )}
+              </div>
+            ) : (
+              <Alert
+                message="Timestamp proof not available"
+                description="No timestamp proof found for this file."
+                type="info"
+                showIcon
+                style={{ fontSize: 11 }}
+              />
+            )}
           </div>
         ),
       },

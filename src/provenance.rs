@@ -1,7 +1,7 @@
 use anyhow::Result;
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 /// Static server keypair for signing (to be replaced with proper key management later)
@@ -23,9 +23,35 @@ pub struct Manifest {
 /// Artifact metadata
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Artifact {
-    pub file_name: String,
-    pub size_bytes: u64,
+    #[serde(skip)]
+    pub file_path: PathBuf,
     pub sha256_hex: String,
+}
+
+impl Artifact {
+    /// Create artifact from file path and hash
+    pub fn new(file_path: PathBuf, sha256_hex: String) -> Self {
+        Self {
+            file_path,
+            sha256_hex,
+        }
+    }
+
+    /// Get file name from path
+    pub fn file_name(&self) -> String {
+        self.file_path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("unknown")
+            .to_string()
+    }
+
+    /// Get file size from filesystem
+    pub fn size_bytes(&self) -> u64 {
+        std::fs::metadata(&self.file_path)
+            .map(|m| m.len())
+            .unwrap_or(0)
+    }
 }
 
 /// Provenance event following provenance.event/v1 spec
@@ -113,9 +139,8 @@ impl ProvenanceDb {
         conn.execute(
             "CREATE TABLE IF NOT EXISTS artifacts (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                file_name TEXT NOT NULL,
-                sha256_hex TEXT NOT NULL UNIQUE,
-                size_bytes INTEGER NOT NULL,
+                file_path TEXT NOT NULL UNIQUE,
+                sha256_hex TEXT NOT NULL,
                 created_at TEXT NOT NULL
             )",
             [],
@@ -170,6 +195,11 @@ impl ProvenanceDb {
         )?;
 
         conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_artifacts_file_path ON artifacts(file_path)",
+            [],
+        )?;
+
+        conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_events_artifact ON events(artifact_id)",
             [],
         )?;
@@ -189,69 +219,41 @@ impl ProvenanceDb {
         })
     }
 
-    /// Insert or update artifact
-    pub fn upsert_artifact(
-        &self,
-        file_name: &str,
-        sha256_hex: &str,
-        size_bytes: u64,
-    ) -> Result<i64> {
+    /// Insert or update artifact by file path
+    pub fn upsert_artifact(&self, file_path: &str, sha256_hex: &str) -> Result<i64> {
         let conn = self.conn.lock().unwrap();
         let now = chrono::Utc::now().to_rfc3339();
 
         let artifact_id: i64 = conn.query_row(
             r#"
-            INSERT INTO artifacts (file_name, sha256_hex, size_bytes, created_at)
-            VALUES (?1, ?2, ?3, ?4)
-            ON CONFLICT(sha256_hex) DO UPDATE SET
-                file_name = excluded.file_name,
-                size_bytes = excluded.size_bytes
+            INSERT INTO artifacts (file_path, sha256_hex, created_at)
+            VALUES (?1, ?2, ?3)
+            ON CONFLICT(file_path) DO UPDATE SET
+                sha256_hex = excluded.sha256_hex
             RETURNING id
             "#,
-            params![file_name, sha256_hex, size_bytes, now],
+            params![file_path, sha256_hex, now],
             |row| row.get(0),
         )?;
 
         Ok(artifact_id)
     }
 
-    /// Get artifact by SHA-256 hash
-    pub fn get_artifact(&self, sha256_hex: &str) -> Result<Option<(i64, Artifact)>> {
-        let conn = self.conn.lock().unwrap();
-
-        let mut stmt = conn.prepare(
-            "SELECT id, file_name, size_bytes, sha256_hex FROM artifacts WHERE sha256_hex = ?1",
-        )?;
-
-        let mut rows = stmt.query(params![sha256_hex])?;
-
-        if let Some(row) = rows.next()? {
-            let id: i64 = row.get(0)?;
-            let artifact = Artifact {
-                file_name: row.get(1)?,
-                size_bytes: row.get(2)?,
-                sha256_hex: row.get(3)?,
-            };
-            Ok(Some((id, artifact)))
-        } else {
-            Ok(None)
-        }
-    }
-
-    /// Get artifact by ID (for XATTR cache lookups)
-    pub fn get_artifact_by_id(&self, artifact_id: i64) -> Result<Option<(String, String, u64)>> {
+    /// Get artifact by file path
+    pub fn get_artifact_by_path(&self, file_path: &str) -> Result<Option<(i64, Artifact)>> {
         let conn = self.conn.lock().unwrap();
 
         let mut stmt =
-            conn.prepare("SELECT file_name, sha256_hex, size_bytes FROM artifacts WHERE id = ?1")?;
+            conn.prepare("SELECT id, file_path, sha256_hex FROM artifacts WHERE file_path = ?1")?;
 
-        let mut rows = stmt.query(params![artifact_id])?;
+        let mut rows = stmt.query(params![file_path])?;
 
         if let Some(row) = rows.next()? {
-            let file_name: String = row.get(0)?;
-            let sha256_hex: String = row.get(1)?;
-            let size_bytes: u64 = row.get(2)?;
-            Ok(Some((file_name, sha256_hex, size_bytes)))
+            let id: i64 = row.get(0)?;
+            let file_path_str: String = row.get(1)?;
+            let sha256_hex: String = row.get(2)?;
+            let artifact = Artifact::new(PathBuf::from(file_path_str), sha256_hex);
+            Ok(Some((id, artifact)))
         } else {
             Ok(None)
         }
@@ -426,9 +428,9 @@ impl ProvenanceDb {
         Ok(events)
     }
 
-    /// Generate complete manifest for an artifact
-    pub fn get_manifest(&self, sha256_hex: &str) -> Result<Option<Manifest>> {
-        let (artifact_id, artifact) = match self.get_artifact(sha256_hex)? {
+    /// Generate complete manifest for an artifact by file path
+    pub fn get_manifest_by_path(&self, file_path: &str) -> Result<Option<Manifest>> {
+        let (artifact_id, artifact) = match self.get_artifact_by_path(file_path)? {
             Some(result) => result,
             None => return Ok(None),
         };
@@ -811,7 +813,7 @@ mod tests {
         let db = ProvenanceDb::new(":memory:")?;
 
         // Test artifact insertion
-        let artifact_id = db.upsert_artifact("test.txt", "abc123", 1024)?;
+        let artifact_id = db.upsert_artifact("/tmp/test.txt", "abc123")?;
 
         assert!(artifact_id > 0);
 
@@ -822,7 +824,7 @@ mod tests {
     fn test_event_insertion() -> Result<()> {
         let db = ProvenanceDb::new(":memory:")?;
 
-        let artifact_id = db.upsert_artifact("test.txt", "abc123", 1024)?;
+        let artifact_id = db.upsert_artifact("/tmp/test.txt", "abc123")?;
 
         let actors = Actors {
             creator_pubkey_hex: Some("02a1bc".to_string()),
@@ -860,7 +862,7 @@ mod tests {
     fn test_manifest_generation() -> Result<()> {
         let db = ProvenanceDb::new(":memory:")?;
 
-        let artifact_id = db.upsert_artifact("test.txt", "abc123", 1024)?;
+        let artifact_id = db.upsert_artifact("/tmp/test.txt", "abc123")?;
 
         let actors = Actors {
             creator_pubkey_hex: Some("02a1bc".to_string()),
@@ -889,7 +891,7 @@ mod tests {
 
         db.insert_event(args)?;
 
-        let manifest = db.get_manifest("abc123")?.unwrap();
+        let manifest = db.get_manifest_by_path("/tmp/test.txt")?.unwrap();
 
         assert_eq!(manifest.artifact.sha256_hex, "abc123");
         assert_eq!(manifest.events.len(), 1);

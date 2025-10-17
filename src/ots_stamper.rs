@@ -199,16 +199,18 @@ fn is_timestamp_complete(step: &Step) -> bool {
 }
 
 /// Collect all pending attestations with their commitments
-fn collect_pending_attestations(step: &Step, commitment: &[u8]) -> Vec<(Vec<u8>, String)> {
+/// Returns (commitment, uri) for each pending attestation
+fn collect_pending_attestations(step: &Step) -> Vec<(Vec<u8>, String)> {
     let mut pending = Vec::new();
 
     match &step.data {
         StepData::Attestation(Attestation::Pending { uri }) => {
-            pending.push((commitment.to_vec(), uri.clone()));
+            // The commitment is the output of the step that leads to this attestation
+            pending.push((step.output.clone(), uri.clone()));
         }
         StepData::Fork | StepData::Op(_) => {
             for next_step in &step.next {
-                pending.extend(collect_pending_attestations(next_step, &next_step.output));
+                pending.extend(collect_pending_attestations(next_step));
             }
         }
         _ => {}
@@ -262,110 +264,45 @@ async fn query_calendar_for_upgrade(calendar_url: &str, commitment: &[u8]) -> Re
     Ok(upgraded_timestamp)
 }
 
-/// Merge an upgraded timestamp into the original timestamp
-/// This combines the operations and attestations from the upgraded timestamp
-/// This is equivalent to the JavaScript library's Timestamp.merge() method
-fn merge_timestamps(original: &mut Step, upgraded: &Step) -> bool {
-    // Get attestations from both timestamps
-    let original_attestations = collect_attestations(original);
-    let upgraded_attestations = collect_attestations(upgraded);
+/// Recursively find and replace a pending attestation with upgraded timestamp
+/// Returns true if a pending attestation was found and replaced
+fn replace_pending_attestation(
+    step: &mut Step,
+    target_commitment: &[u8],
+    target_uri: &str,
+    upgraded_first_step: &Step,
+) -> bool {
+    // Check if this is the pending attestation we're looking for
+    let is_target = if let StepData::Attestation(Attestation::Pending { uri }) = &step.data {
+        uri == target_uri && step.output == target_commitment
+    } else {
+        false
+    };
 
-    // Check if upgraded timestamp has new attestations
-    let has_new_attestations = upgraded_attestations.iter().any(|upgraded_att| {
-        !original_attestations.iter().any(|orig_att| {
-            // Compare attestations - if they're both Bitcoin attestations at same height, they're the same
-            match (orig_att, upgraded_att) {
-                (Attestation::Bitcoin { height: h1 }, Attestation::Bitcoin { height: h2 }) => {
-                    h1 == h2
-                }
-                _ => false,
-            }
-        })
-    });
-
-    if !has_new_attestations {
-        return false; // No new attestations to merge
+    if is_target {
+        // Found it! Replace this pending attestation with the upgraded timestamp
+        // The upgraded timestamp starts from the same commitment, so we can use its first step
+        info!(
+            "Replaced pending attestation {} with upgraded timestamp",
+            target_uri
+        );
+        *step = upgraded_first_step.clone();
+        return true;
     }
 
-    // Actually merge the step trees
-    // The merge happens by adding all the steps from the upgraded timestamp to the original
-    // We need to recursively merge the next steps
-    merge_step_recursive(original, upgraded)
-}
-
-/// Recursively merge steps from upgraded timestamp into original
-/// This follows the same logic as the JavaScript Timestamp.merge() method
-fn merge_step_recursive(original: &mut Step, upgraded: &Step) -> bool {
-    let mut changed = false;
-
-    // Match based on the step data type
-    match (&original.data, &upgraded.data) {
-        // If both are attestations, check if we need to add the upgraded one
-        (StepData::Attestation(_), StepData::Attestation(_)) => {
-            // If they're different attestations, we can't merge at this level
-            // This shouldn't happen if the paths match
-            return false;
+    // Recursively search in next steps
+    for next_step in &mut step.next {
+        if replace_pending_attestation(
+            next_step,
+            target_commitment,
+            target_uri,
+            upgraded_first_step,
+        ) {
+            return true;
         }
-        // If both are operations or forks, merge the next steps
-        (StepData::Op(_), StepData::Op(_)) | (StepData::Fork, StepData::Fork) => {
-            // For each next step in upgraded, find or create matching step in original
-            for upgraded_next in &upgraded.next {
-                // Try to find a matching step in original.next
-                let mut found_match = false;
-
-                for original_next in &mut original.next {
-                    // Check if the steps match (same operation/attestation type and output)
-                    if steps_match(original_next, upgraded_next) {
-                        // Recursively merge
-                        if merge_step_recursive(original_next, upgraded_next) {
-                            changed = true;
-                        }
-                        found_match = true;
-                        break;
-                    }
-                }
-
-                // If no match found, add the upgraded step to original
-                if !found_match {
-                    original.next.push(upgraded_next.clone());
-                    changed = true;
-                }
-            }
-        }
-        // Mixed types - can't merge
-        _ => return false,
     }
 
-    changed
-}
-
-/// Check if two steps match (have same operation/attestation and output)
-fn steps_match(step1: &Step, step2: &Step) -> bool {
-    // Steps match if they have the same data type and same output
-    if step1.output != step2.output {
-        return false;
-    }
-
-    match (&step1.data, &step2.data) {
-        (StepData::Op(op1), StepData::Op(op2)) => {
-            // Check if operations are the same type
-            std::mem::discriminant(op1) == std::mem::discriminant(op2)
-        }
-        (StepData::Fork, StepData::Fork) => true,
-        (
-            StepData::Attestation(Attestation::Bitcoin { height: h1 }),
-            StepData::Attestation(Attestation::Bitcoin { height: h2 }),
-        ) => h1 == h2,
-        (
-            StepData::Attestation(Attestation::Pending { uri: u1 }),
-            StepData::Attestation(Attestation::Pending { uri: u2 }),
-        ) => u1 == u2,
-        (
-            StepData::Attestation(Attestation::Unknown { tag: t1, .. }),
-            StepData::Attestation(Attestation::Unknown { tag: t2, .. }),
-        ) => t1 == t2,
-        _ => false,
-    }
+    false
 }
 
 /// Upgrade a timestamp by querying calendar servers for new attestations
@@ -377,10 +314,7 @@ pub async fn upgrade_timestamp(detached_ots: &mut DetachedTimestampFile) -> Resu
     }
 
     // Collect all pending attestations
-    let pending = collect_pending_attestations(
-        &detached_ots.timestamp.first_step,
-        &detached_ots.timestamp.start_digest,
-    );
+    let pending = collect_pending_attestations(&detached_ots.timestamp.first_step);
 
     if pending.is_empty() {
         return Ok(false); // No pending attestations to upgrade
@@ -393,13 +327,19 @@ pub async fn upgrade_timestamp(detached_ots: &mut DetachedTimestampFile) -> Resu
     for (commitment, calendar_url) in pending {
         match query_calendar_for_upgrade(&calendar_url, &commitment).await {
             Ok(upgraded_timestamp) => {
-                // Merge the upgraded timestamp into the original
-                // This preserves all existing attestations while adding new ones
-                if merge_timestamps(
+                // Replace the pending attestation with the upgraded timestamp
+                // The upgraded timestamp starts from the commitment point where the pending attestation is
+                if replace_pending_attestation(
                     &mut detached_ots.timestamp.first_step,
+                    &commitment,
+                    &calendar_url,
                     &upgraded_timestamp.first_step,
                 ) {
                     changed = true;
+                    info!(
+                        "Successfully upgraded pending attestation from {}",
+                        calendar_url
+                    );
                 }
             }
             Err(e) => {
@@ -512,6 +452,89 @@ pub async fn verify_timestamp(
         results,
         upgraded_ots_b64,
     })
+}
+
+/// Response structure for OTS info output
+#[derive(Debug, Serialize)]
+pub struct OtsInfo {
+    pub file_hash: String,
+    pub operations: Vec<String>,
+}
+
+/// Generate human-readable OTS info similar to ots-cli.js info command
+pub fn generate_ots_info(ots_proof_b64: &str) -> Result<OtsInfo> {
+    // Decode base64 OTS proof
+    let ots_bytes = base64::engine::general_purpose::STANDARD
+        .decode(ots_proof_b64)
+        .map_err(|e| anyhow!("Failed to decode base64 OTS proof: {}", e))?;
+
+    // Parse the OTS file
+    let cursor = Cursor::new(&ots_bytes);
+    let detached_ots = DetachedTimestampFile::from_reader(cursor)
+        .map_err(|e| anyhow!("Failed to parse OTS file: {}", e))?;
+
+    let file_hash = hex::encode(&detached_ots.timestamp.start_digest);
+    let mut operations = Vec::new();
+
+    // Traverse the timestamp tree and collect operations
+    traverse_step(&detached_ots.timestamp.first_step, &mut operations, 0);
+
+    Ok(OtsInfo {
+        file_hash,
+        operations,
+    })
+}
+
+/// Recursively traverse the timestamp tree and format operations
+fn traverse_step(step: &Step, operations: &mut Vec<String>, depth: usize) {
+    let indent = "  ".repeat(depth);
+
+    match &step.data {
+        StepData::Op(op) => {
+            let op_str = match op {
+                Op::Sha256 => format!("{}→ sha256", indent),
+                Op::Sha1 => format!("{}→ sha1", indent),
+                Op::Ripemd160 => format!("{}→ ripemd160", indent),
+                Op::Append(data) => format!("{}→ append {}", indent, hex::encode(data)),
+                Op::Prepend(data) => format!("{}→ prepend {}", indent, hex::encode(data)),
+                Op::Reverse => format!("{}→ reverse", indent),
+                Op::Hexlify => format!("{}→ hexlify", indent),
+            };
+            operations.push(op_str);
+            operations.push(format!("{}   → {}", indent, hex::encode(&step.output)));
+        }
+        StepData::Fork => {
+            // For fork, just process the next steps without a label
+        }
+        StepData::Attestation(att) => {
+            let att_str = match att {
+                Attestation::Bitcoin { height } => {
+                    format!("{}✓ Bitcoin block attestation (height: {})", indent, height)
+                }
+                Attestation::Pending { uri } => {
+                    format!("{}⏳ Pending attestation: {}", indent, uri)
+                }
+                Attestation::Unknown { tag, data } => {
+                    format!(
+                        "{}? Unknown attestation (tag: {}, data: {})",
+                        indent,
+                        hex::encode(tag),
+                        hex::encode(data)
+                    )
+                }
+            };
+            operations.push(att_str);
+        }
+    }
+
+    // Process all next steps
+    if step.next.len() > 1 {
+        operations.push(format!("{}[Fork into {} paths]", indent, step.next.len()));
+    }
+
+    for next_step in &step.next {
+        traverse_step(next_step, operations, depth + 1);
+    }
 }
 
 /// Esplora API block response

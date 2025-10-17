@@ -28,9 +28,11 @@ use tokio_util::io::{ReaderStream, StreamReader};
 use uuid::Uuid;
 
 use crate::auth::{AccessPaths, AccessPerm};
+use crate::file_utils;
 use crate::http_utils::{body_full, IncomingStream, LengthLimitedStream};
 use crate::noscript::{detect_noscript, generate_noscript_html};
 use crate::provenance::ProvenanceDb;
+use crate::provenance_utils;
 use crate::utils::{encode_uri, get_file_name, parse_range, try_get_file_name};
 use crate::Args;
 
@@ -250,10 +252,13 @@ impl Server {
 
         let path = path.as_path();
 
-        let (is_miss, is_dir, is_file, size) = match fs::metadata(path).await.ok() {
-            Some(meta) => (false, meta.is_dir(), meta.is_file(), meta.len()),
-            None => (true, false, false, 0),
-        };
+        let file_info = file_utils::get_file_info(path).await;
+        let (is_miss, is_dir, is_file, size) = (
+            !file_info.exists,
+            file_info.is_dir,
+            file_info.is_file,
+            file_info.size,
+        );
 
         let allow_upload = self.args.allow_upload;
         let allow_delete = self.args.allow_delete;
@@ -348,6 +353,14 @@ impl Server {
                         provenance_handlers::handle_hash_file(path, head_only, &mut res).await?;
                     } else if query_params.get("manifest") == Some(&"json".to_string()) {
                         provenance_handlers::handle_provenance_manifest(
+                            path,
+                            head_only,
+                            &self.provenance_db,
+                            &mut res,
+                        )
+                        .await?;
+                    } else if has_query_flag(&query_params, "ots-info") {
+                        provenance_handlers::handle_ots_info(
                             path,
                             head_only,
                             &self.provenance_db,
@@ -541,11 +554,6 @@ impl Server {
     ) -> Result<()> {
         ensure_path_parent(path).await?;
 
-        // Clear XATTR cache when overwriting (not when creating new file)
-        if upload_offset.is_none() && fs::metadata(path).await.is_ok() {
-            provenance_handlers::clear_artifact_id_from_xattr(path);
-        }
-
         let (mut file, status) = match upload_offset {
             None => (fs::File::create(path).await?, StatusCode::CREATED),
             Some(offset) if offset == size => (
@@ -612,11 +620,6 @@ impl Server {
     }
 
     pub async fn handle_delete(&self, path: &Path, is_dir: bool, res: &mut Response) -> Result<()> {
-        // Clear XATTR cache for files before deletion
-        if !is_dir {
-            provenance_handlers::clear_artifact_id_from_xattr(path);
-        }
-
         match is_dir {
             true => fs::remove_dir_all(path).await?,
             false => fs::remove_file(path).await?,
@@ -854,8 +857,7 @@ impl Server {
         head_only: bool,
         res: &mut Response,
     ) -> Result<()> {
-        let (file, meta) = tokio::join!(fs::File::open(path), fs::metadata(path),);
-        let (mut file, meta) = (file?, meta?);
+        let (mut file, meta) = file_utils::open_file_with_metadata(path).await?;
         let size = meta.len();
         let mut use_range = true;
         if let Some((etag, last_modified)) = extract_cache_headers(&meta) {
@@ -1005,8 +1007,7 @@ impl Server {
         user: Option<String>,
         res: &mut Response,
     ) -> Result<()> {
-        let (file, meta) = tokio::join!(fs::File::open(path), fs::metadata(path),);
-        let (file, meta) = (file?, meta?);
+        let (file, meta) = file_utils::open_file_with_metadata(path).await?;
         let href = format!(
             "/{}",
             normalize_path(path.strip_prefix(&self.args.serve_path)?)
@@ -1198,7 +1199,7 @@ impl Server {
         base_path: P,
     ) -> Result<Option<PathItem>> {
         let path = path.as_ref();
-        let (meta, meta2) = tokio::join!(fs::metadata(&path), fs::symlink_metadata(&path));
+        let (meta, meta2) = tokio::join!(fs::metadata(path), fs::symlink_metadata(path));
         let (meta, meta2) = (meta?, meta2?);
         let is_symlink = meta2.is_symlink();
         if !self.args.allow_symlink && is_symlink && !self.is_root_contained(path).await {
@@ -1441,26 +1442,15 @@ impl Server {
             Signatures, SERVER_PRIVATE_KEY_HEX, SERVER_PUBLIC_KEY_HEX,
         };
         use base64::{engine::general_purpose::STANDARD, Engine as _};
-        use sha2::{Digest, Sha256};
 
-        // Read file and compute SHA-256 hash
-        let file_data = tokio::fs::read(path).await?;
-        let mut hasher = Sha256::new();
-        hasher.update(&file_data);
-        let hash_bytes = hasher.finalize();
-        let sha256_hex = hex::encode(hash_bytes);
+        // Compute file hash and upsert artifact
+        let sha256_hex = file_utils::sha256_file_hash(path).await?;
+        let path_str = path
+            .to_str()
+            .ok_or_else(|| anyhow!("Invalid UTF-8 in path"))?;
+        let artifact_id = self.provenance_db.upsert_artifact(path_str, &sha256_hex)?;
 
-        let file_name = path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .ok_or_else(|| anyhow!("Invalid filename"))?
-            .to_string();
-        let size_bytes = file_data.len() as u64;
-
-        // Insert or update artifact
-        let artifact_id =
-            self.provenance_db
-                .upsert_artifact(&file_name, &sha256_hex, size_bytes)?;
+        let file_name = file_utils::extract_filename(path)?.to_string();
 
         // Check if mint event already exists
         let next_index = self.provenance_db.get_next_event_index(artifact_id)?;
@@ -1468,7 +1458,7 @@ impl Server {
             // Artifact already has events, return existing mint event
             let manifest = self
                 .provenance_db
-                .get_manifest(&sha256_hex)?
+                .get_manifest_by_path(path_str)?
                 .ok_or_else(|| anyhow!("Manifest not found after checking event index"))?;
 
             let first_event = &manifest.events[0];
@@ -1545,9 +1535,6 @@ impl Server {
                 actors: &actors,
                 signatures: &signatures,
             })?;
-
-        // Populate XATTR cache for fast future lookups
-        provenance_handlers::set_artifact_id_in_xattr(path, artifact_id);
 
         // Verify the event we just created
         let created_event = Event {
