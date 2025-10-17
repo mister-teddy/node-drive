@@ -25,7 +25,6 @@ macro_rules! fetch {
     };
 }
 
-#[allow(dead_code)]
 pub fn retrieve_index_paths(content: &str) -> IndexSet<String> {
     let value = retrieve_json(content).unwrap();
     let paths = value
@@ -47,20 +46,17 @@ pub fn retrieve_index_paths(content: &str) -> IndexSet<String> {
     paths
 }
 
-#[allow(dead_code)]
 pub fn retrieve_edit_file(content: &str) -> Option<bool> {
     let value = retrieve_json(content).unwrap();
     let value = value.get("editable").unwrap();
     Some(value.as_bool().unwrap())
 }
 
-#[allow(dead_code)]
 pub fn encode_uri(v: &str) -> String {
     let parts: Vec<_> = v.split('/').map(urlencoding::encode).collect();
     parts.join("/")
 }
 
-#[allow(dead_code)]
 pub fn retrieve_json(content: &str) -> Option<Value> {
     let lines: Vec<&str> = content.lines().collect();
     let start_tag = "<template id=\"index-data\">";

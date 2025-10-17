@@ -247,7 +247,7 @@ pub async fn handle_ots_info(
 
 pub async fn handle_ots_verify(
     req: Request,
-    provenance_db: &ProvenanceDb,
+    _provenance_db: &ProvenanceDb,
     res: &mut Response,
 ) -> Result<()> {
     use crate::ots_stamper;
@@ -361,7 +361,7 @@ pub async fn compute_stamp_status(
             .await
             .ok()?
         {
-            Some((id, artifact, hash)) => (id, hash),
+            Some((id, _artifact, hash)) => (id, hash),
             None => {
                 // File not in provenance system yet
                 return None;

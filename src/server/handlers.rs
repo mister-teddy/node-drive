@@ -32,7 +32,6 @@ use crate::file_utils;
 use crate::http_utils::{body_full, IncomingStream, LengthLimitedStream};
 use crate::noscript::{detect_noscript, generate_noscript_html};
 use crate::provenance::ProvenanceDb;
-use crate::provenance_utils;
 use crate::utils::{encode_uri, get_file_name, parse_range, try_get_file_name};
 use crate::Args;
 

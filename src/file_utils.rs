@@ -32,22 +32,6 @@ pub async fn sha256_file_hash(path: &Path) -> Result<String> {
     Ok(format!("{result:x}"))
 }
 
-/// Compute SHA-256 hash of in-memory bytes
-pub fn sha256_bytes(data: &[u8]) -> String {
-    let mut hasher = Sha256::new();
-    hasher.update(data);
-    let result = hasher.finalize();
-    hex::encode(result)
-}
-
-/// Read file and compute SHA-256 hash (returns both data and hash)
-/// Useful when you need both the file contents and its hash
-pub async fn read_and_hash_file(path: &Path) -> Result<(Vec<u8>, String)> {
-    let file_data = fs::read(path).await?;
-    let hash = sha256_bytes(&file_data);
-    Ok((file_data, hash))
-}
-
 /// Get comprehensive file metadata information
 pub async fn get_file_info(path: &Path) -> FileInfo {
     match fs::metadata(path).await {
@@ -83,18 +67,6 @@ pub async fn open_file_with_metadata(path: &Path) -> Result<(fs::File, std::fs::
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tokio;
-
-    #[tokio::test]
-    async fn test_sha256_bytes() {
-        let data = b"hello world";
-        let hash = sha256_bytes(data);
-        // SHA-256 of "hello world"
-        assert_eq!(
-            hash,
-            "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9"
-        );
-    }
 
     #[tokio::test]
     async fn test_get_file_info_nonexistent() {

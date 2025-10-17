@@ -36,22 +36,6 @@ impl Artifact {
             sha256_hex,
         }
     }
-
-    /// Get file name from path
-    pub fn file_name(&self) -> String {
-        self.file_path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("unknown")
-            .to_string()
-    }
-
-    /// Get file size from filesystem
-    pub fn size_bytes(&self) -> u64 {
-        std::fs::metadata(&self.file_path)
-            .map(|m| m.len())
-            .unwrap_or(0)
-    }
 }
 
 /// Provenance event following provenance.event/v1 spec
@@ -453,24 +437,6 @@ impl ProvenanceDb {
         let max_index: Option<u32> = stmt.query_row(params![artifact_id], |row| row.get(0))?;
 
         Ok(max_index.map(|i| i + 1).unwrap_or(0))
-    }
-
-    /// Get the last event hash for an artifact
-    #[allow(dead_code)]
-    pub fn get_last_event_hash(&self, artifact_id: i64) -> Result<Option<String>> {
-        let conn = self.conn.lock().unwrap();
-
-        let mut stmt = conn.prepare(
-            "SELECT event_hash_hex FROM events WHERE artifact_id = ?1 ORDER BY index_num DESC LIMIT 1"
-        )?;
-
-        let mut rows = stmt.query(params![artifact_id])?;
-
-        if let Some(row) = rows.next()? {
-            Ok(Some(row.get(0)?))
-        } else {
-            Ok(None)
-        }
     }
 
     /// Update the OTS proof for a specific event

@@ -8,14 +8,11 @@ use std::process::{Child, Command, Stdio};
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
-#[allow(dead_code)]
 pub type Error = Box<dyn std::error::Error>;
 
-#[allow(dead_code)]
 pub const BIN_FILE: &str = "😀.bin";
 
 /// File names for testing purpose
-#[allow(dead_code)]
 pub static FILES: &[&str] = &[
     "test.txt",
     "test.html",
@@ -26,29 +23,23 @@ pub static FILES: &[&str] = &[
 ];
 
 /// Directory names for testing directory don't exist
-#[allow(dead_code)]
 pub static DIR_NO_FOUND: &str = "dir-no-found/";
 
 /// Directory names for testing directory don't have index.html
-#[allow(dead_code)]
 pub static DIR_NO_INDEX: &str = "dir-no-index/";
 
 /// Directory names for testing hidden
-#[allow(dead_code)]
 pub static DIR_GIT: &str = ".git/";
 
 /// Directory names for testings assets override
-#[allow(dead_code)]
 pub static DIR_ASSETS: &str = "dir-assets/";
 
 /// Directory names for testing purpose
-#[allow(dead_code)]
 pub static DIRECTORIES: &[&str] = &["dir1/", "dir2/", "dir3/", DIR_NO_INDEX, DIR_GIT, DIR_ASSETS];
 
 /// Test fixture which creates a temporary directory with a few files and directories inside.
 /// The directories also contain files.
 #[fixture]
-#[allow(dead_code)]
 pub fn tmpdir() -> TempDir {
     let tmpdir = assert_fs::TempDir::new().expect("Couldn't create a temp dir for tests");
     for file in FILES {
@@ -113,7 +104,6 @@ pub fn tmpdir() -> TempDir {
 
 /// Get a free port.
 #[fixture]
-#[allow(dead_code)]
 pub fn port() -> u16 {
     free_local_port().expect("Couldn't find a free local port")
 }
@@ -121,7 +111,6 @@ pub fn port() -> u16 {
 /// Run dufs as a server; Start with a temporary directory, a free port and some
 /// optional arguments then wait for a while for the server setup to complete.
 #[fixture]
-#[allow(dead_code)]
 pub fn server<I>(#[default(&[] as &[&str])] args: I) -> TestServer
 where
     I: IntoIterator + Clone,
@@ -159,7 +148,6 @@ pub fn wait_for_port(port: u16) {
     }
 }
 
-#[allow(dead_code)]
 pub struct TestServer {
     port: u16,
     tmpdir: TempDir,
@@ -167,7 +155,6 @@ pub struct TestServer {
     is_tls: bool,
 }
 
-#[allow(dead_code)]
 impl TestServer {
     pub fn new(port: u16, tmpdir: TempDir, child: Child, is_tls: bool) -> Self {
         Self {
