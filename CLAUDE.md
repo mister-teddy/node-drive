@@ -47,6 +47,7 @@ cargo fmt --all --check            # Check formatting without changing
 The codebase is organized into distinct modules with clear responsibilities:
 
 **`main.rs`** (306 lines)
+
 - Entry point that orchestrates server initialization
 - Handles command-line argument parsing via `build_cli()`
 - Manages TCP/TLS listeners and spawns server tasks
@@ -54,6 +55,7 @@ The codebase is organized into distinct modules with clear responsibilities:
 - Creates multiple server instances for different bind addresses (IPv4/IPv6/Unix sockets)
 
 **`server.rs`** (1940 lines - largest module)
+
 - Core HTTP request handling and routing logic
 - Implements the `Server` struct with `call()` and `handle()` methods
 - Request routing: GET (file serving, directory listing), PUT/POST (upload), DELETE, WebDAV methods (PROPFIND, PROPPATCH, MKCOL, COPY, MOVE, LOCK, UNLOCK)
@@ -64,6 +66,7 @@ The codebase is organized into distinct modules with clear responsibilities:
 - Built-in assets (HTML/CSS/JS) embedded via `include_str!()` and `include_bytes!()`
 
 **`args.rs`** (738 lines)
+
 - CLI argument definitions using `clap`
 - Configuration file parsing (YAML format)
 - Environment variable support (all options prefixed with `DUFS_`)
@@ -72,6 +75,7 @@ The codebase is organized into distinct modules with clear responsibilities:
 - Validates paths, ports, and other options
 
 **`auth.rs`** (725 lines)
+
 - Authentication and authorization system
 - Supports both Basic and Digest HTTP authentication
 - `AccessControl` struct manages user permissions
@@ -82,26 +86,31 @@ The codebase is organized into distinct modules with clear responsibilities:
 - Permission checks integrated with HTTP methods
 
 **`http_logger.rs`** (106 lines)
+
 - Customizable HTTP request logging
 - Template-based format: `$remote_addr`, `$remote_user`, `$request`, `$status`, `$http_*`
 - Logs to stdout or file
 
 **`http_utils.rs`** (105 lines)
+
 - HTTP utility functions for body handling
 - Stream processing for chunked uploads/downloads
 - Length-limited streams to prevent memory exhaustion
 
 **`utils.rs`** (186 lines)
+
 - File system utilities: path encoding/decoding, glob matching
 - Time utilities: file modification times, Unix timestamps
 - TLS certificate loading (when `tls` feature enabled)
 - SHA-256 hashing utilities (foundation for provenance features)
 
 **`logger.rs`** (61 lines)
+
 - Simple logging setup using the `log` crate
 - Configurable log output to file or stderr
 
 **`noscript.rs`** (103 lines)
+
 - Detects browsers with JavaScript disabled
 - Generates fallback HTML with form-based file uploads
 
@@ -141,6 +150,7 @@ Response (with CORS headers if enabled)
 ### Test Infrastructure
 
 Tests use `rstest` fixtures to create temporary directories with pre-populated files. Key test modules:
+
 - `fixtures.rs`: Shared test utilities, temp directory setup, server spawning
 - `http.rs`: HTTP method tests (GET, PUT, DELETE, etc.)
 - `auth.rs`: Authentication and authorization tests
@@ -152,17 +162,21 @@ Tests use `rstest` fixtures to create temporary directories with pre-populated f
 The README.md describes a digital provenance system that is **not yet implemented** in the Rust codebase. The design includes:
 
 ### Data Model
+
 - **Manifest** (`provenance.manifest/v1`): JSON file tracking artifact metadata and events
 - **Event** (`provenance.event/v1`): Append-only log of "mint" and "transfer" actions
 - Each event includes: SHA-256 hash, signatures (ECDSA/Ed25519), OpenTimestamps proof (base64)
 - Chain validation: each event references previous event's hash
 
 ### File Layout
+
 - `artifact.bin` - Original file
 - `artifact.json` - Provenance manifest with embedded OTS proofs
 
 ### Implementation Notes
+
 When implementing provenance features:
+
 - SHA-256 hashing is already available via `sha2` crate (see `utils.rs`)
 - Ed25519 signatures via `ed25519-dalek` crate (see `auth.rs` for token signing example)
 - OpenTimestamps integration will need new dependency
@@ -173,33 +187,41 @@ When implementing provenance features:
 ## Development Notes
 
 ### Feature Flags
+
 - `tls`: Enables HTTPS support with rustls (default: enabled)
 - To disable TLS: `cargo build --no-default-features`
 
 ### Environment Variables
+
 All CLI options can be set via env vars prefixed with `DUFS_`:
+
 - `DUFS_SERVE_PATH=.`
 - `DUFS_PORT=5000`
 - `DUFS_AUTH="admin:pass@/:rw"`
 - `DUFS_ALLOW_UPLOAD=true`
 
 ### Assets Customization
+
 - Built-in assets in `assets/` directory are embedded at compile time
 - Override at runtime with `--assets` flag pointing to custom directory
-- Must include `index.html` with placeholders: `__INDEX_DATA__`, `__ASSETS_PREFIX__`
 
 ### Release Build Optimizations
+
 Profile in `Cargo.toml` uses aggressive optimizations:
+
 - LTO enabled, single codegen unit
 - Panic=abort, symbols stripped
 - Results in smaller, faster binaries
 
 ### CI/CD
+
 GitHub Actions (`.github/workflows/`):
+
 - **ci.yaml**: Runs on PR/push, executes tests + clippy + rustfmt on Ubuntu/macOS/Windows
 - **release.yaml**: Builds multi-platform binaries, creates GitHub releases
 
 ### Common Pitfalls
+
 - **Path handling**: Always use `decode_uri()` and `encode_uri()` from `utils.rs` for URI ↔ filesystem path conversions
 - **Authentication**: Digest auth is default; hashed passwords don't work with digest auth (limitation documented)
 - **Resumable uploads**: Only enabled for files >20MB (see `RESUMABLE_UPLOAD_MIN_SIZE`)

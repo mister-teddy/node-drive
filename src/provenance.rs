@@ -243,6 +243,19 @@ impl ProvenanceDb {
         }
     }
 
+    /// Update artifact file path (for file moves/renames)
+    /// This is called when a file is moved to update the database
+    pub fn update_artifact_path(&self, old_path: &str, new_path: &str) -> Result<bool> {
+        let conn = self.conn.lock().unwrap();
+
+        let rows_affected = conn.execute(
+            "UPDATE artifacts SET file_path = ?1 WHERE file_path = ?2",
+            params![new_path, old_path],
+        )?;
+
+        Ok(rows_affected > 0)
+    }
+
     /// Insert a new provenance event
     pub fn insert_event(&self, args: InsertEventArgs) -> Result<i64> {
         let mut conn = self.conn.lock().unwrap();

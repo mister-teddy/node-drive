@@ -7,6 +7,7 @@ import XHRUpload from "@uppy/xhr-upload";
 import "@uppy/core/css/style.min.css";
 import "@uppy/dashboard/css/style.min.css";
 import { uppyStore } from "../store/uppyStore";
+import { apiPath } from "../utils";
 
 interface UppyUploaderProps {
   auth: boolean;
@@ -25,11 +26,8 @@ const UppyUploader = observer(({ auth, onAuthRequired }: UppyUploaderProps) => {
     })
       .use(XHRUpload, {
         endpoint: (file: any) => {
-          const currentPath = window.location.pathname;
-          const fileName = encodeURIComponent(file.name);
-          return `${currentPath}${
-            currentPath.endsWith("/") ? "" : "/"
-          }${fileName}`;
+          // Use apiPath to get the correct /api prefix
+          return apiPath(file.name);
         },
         method: "PUT",
         formData: false,

@@ -30,25 +30,25 @@ use uuid::Uuid;
 use crate::auth::{AccessPaths, AccessPerm};
 use crate::file_utils;
 use crate::http_utils::{body_full, IncomingStream, LengthLimitedStream};
-use crate::noscript::{detect_noscript, generate_noscript_html};
+use crate::noscript::detect_noscript;
 use crate::provenance::ProvenanceDb;
 use crate::utils::{encode_uri, get_file_name, parse_range, try_get_file_name};
 use crate::Args;
 
-use super::path_item::{DataKind, EditData, IndexData, PathItem, PathType};
+use super::path_item::{DataKind, EditData, PathItem, PathType};
 use super::provenance_handlers;
 use super::response_utils::{
     add_cors, extract_cache_headers, get_content_type, normalize_path, set_content_disposition,
-    set_html_response, set_webdav_headers, status_bad_request, status_forbid, status_no_content,
-    status_not_found, to_timestamp, Response, BUF_SIZE, EDITABLE_TEXT_MAX_SIZE, INDEX_NAME,
-    MAX_SUBPATHS_COUNT, RESUMABLE_UPLOAD_MIN_SIZE,
+    set_webdav_headers, status_bad_request, status_forbid, status_no_content, status_not_found,
+    to_timestamp, Response, BUF_SIZE, EDITABLE_TEXT_MAX_SIZE, INDEX_NAME, MAX_SUBPATHS_COUNT,
+    RESUMABLE_UPLOAD_MIN_SIZE,
 };
 use super::webdav;
 
 pub type Request = hyper::Request<Incoming>;
 
 const INDEX_HTML: &str = include_str!("../../assets/index.html");
-const HEALTH_CHECK_PATH: &str = "__dufs__/health";
+pub(super) const HEALTH_CHECK_PATH: &str = "__dufs__/health";
 
 pub struct Server {
     pub(super) args: Args,
@@ -101,7 +101,7 @@ impl Server {
         addr: Option<SocketAddr>,
     ) -> Result<Response, hyper::Error> {
         let uri = req.uri().clone();
-        let assets_prefix = &self.assets_prefix;
+        let is_api_request = uri.path().starts_with("/api");
         let enable_cors = self.args.enable_cors;
         let mut http_log_data = self.args.http_logger.data(&req);
         if let Some(addr) = addr {
@@ -111,7 +111,10 @@ impl Server {
         let mut res = match self.clone().handle(req).await {
             Ok(res) => {
                 http_log_data.insert("status".to_string(), res.status().as_u16().to_string());
-                if !uri.path().starts_with(assets_prefix) {
+                // Only log API requests (the application logic). Public asset
+                // requests are served from the SPA and are noisy, so avoid
+                // logging them here.
+                if is_api_request {
                     self.args.http_logger.log(&http_log_data, None);
                 }
                 res
@@ -136,10 +139,30 @@ impl Server {
 
     pub async fn handle(self: Arc<Self>, req: Request) -> Result<Response> {
         let mut res = Response::default();
-
-        let req_path = req.uri().path();
+        let uri_path = req.uri().path();
         let headers = req.headers();
         let method = req.method().clone();
+
+        // If the request is not for the API, treat it as a public asset request
+        // and serve from assets/dist (or fallback to assets/dist/index.html). All
+        // application logic remains under /api/*.
+        if !uri_path.starts_with("/api") {
+            // handle_public will always return Ok(true) after writing a response
+            // (either the asset or a 404). If it returns Ok(true), we return the
+            // response immediately.
+            if self.handle_public(uri_path, headers, &mut res).await? {
+                return Ok(res);
+            }
+            return Ok(res);
+        }
+
+        // For API requests, strip the /api prefix and continue with the
+        // existing request handling logic.
+        let req_path = if uri_path.len() == "/api".len() {
+            "/"
+        } else {
+            &uri_path["/api".len()..]
+        };
 
         let relative_path = match self.resolve_path(req_path) {
             Some(v) => v,
@@ -263,9 +286,6 @@ impl Server {
         let allow_delete = self.args.allow_delete;
         let allow_search = self.args.allow_search;
         let allow_archive = self.args.allow_archive;
-        let render_index = self.args.render_index;
-        let render_spa = self.args.render_spa;
-        let render_try_index = self.args.render_try_index;
 
         if !self.args.allow_symlink && !is_miss && !self.is_root_contained(path).await {
             status_not_found(&mut res);
@@ -275,44 +295,8 @@ impl Server {
         match method {
             Method::GET | Method::HEAD => {
                 if is_dir {
-                    if render_try_index {
-                        if allow_archive && has_query_flag(&query_params, "zip") {
-                            self.handle_zip_dir(path, head_only, access_paths, &mut res)
-                                .await?;
-                        } else if allow_search && query_params.contains_key("q") {
-                            self.handle_search_dir(
-                                path,
-                                &query_params,
-                                head_only,
-                                user,
-                                access_paths,
-                                &mut res,
-                            )
-                            .await?;
-                        } else {
-                            self.handle_render_index(
-                                path,
-                                &query_params,
-                                headers,
-                                head_only,
-                                user,
-                                access_paths,
-                                &mut res,
-                            )
-                            .await?;
-                        }
-                    } else if render_index || render_spa {
-                        self.handle_render_index(
-                            path,
-                            &query_params,
-                            headers,
-                            head_only,
-                            user,
-                            access_paths,
-                            &mut res,
-                        )
-                        .await?;
-                    } else if has_query_flag(&query_params, "zip") {
+                    // For API requests, always return JSON (never HTML)
+                    if has_query_flag(&query_params, "zip") {
                         if !allow_archive {
                             status_not_found(&mut res);
                             return Ok(res);
@@ -320,7 +304,7 @@ impl Server {
                         self.handle_zip_dir(path, head_only, access_paths, &mut res)
                             .await?;
                     } else if allow_search && query_params.contains_key("q") {
-                        self.handle_search_dir(
+                        self.handle_api_search(
                             path,
                             &query_params,
                             head_only,
@@ -330,7 +314,8 @@ impl Server {
                         )
                         .await?;
                     } else {
-                        self.handle_ls_dir(
+                        // Directory listing - return JSON
+                        self.handle_api_index(
                             path,
                             true,
                             &query_params,
@@ -378,11 +363,9 @@ impl Server {
                         self.handle_send_file(path, headers, head_only, &mut res)
                             .await?;
                     }
-                } else if render_spa {
-                    self.handle_render_spa(path, headers, head_only, &mut res)
-                        .await?;
-                } else if allow_upload && req_path.ends_with('/') {
-                    self.handle_ls_dir(
+                } else if is_miss && allow_upload && req_path.ends_with('/') {
+                    // Non-existent directory - return empty JSON listing for API
+                    self.handle_api_index(
                         path,
                         false,
                         &query_params,
@@ -519,7 +502,7 @@ impl Server {
                             Some(dest) => dest,
                             None => return Ok(res),
                         };
-                        webdav::handle_move(path, &dest, &mut res).await?
+                        webdav::handle_move(path, &dest, &mut res, Some(&self.provenance_db)).await?
                     }
                 }
                 "LOCK" => {
@@ -628,90 +611,59 @@ impl Server {
         Ok(())
     }
 
-    #[allow(clippy::too_many_arguments)]
-    pub async fn handle_ls_dir(
+    /// Serves static SPA index.html for directory requests
+    pub async fn handle_spa_index(
         &self,
-        path: &Path,
-        exist: bool,
-        query_params: &HashMap<String, String>,
+        headers: &HeaderMap<HeaderValue>,
         head_only: bool,
-        user: Option<String>,
-        access_paths: AccessPaths,
         res: &mut Response,
     ) -> Result<()> {
-        let mut paths = vec![];
-        if exist {
-            paths = match self.list_dir(path, path, access_paths.clone()).await {
-                Ok(paths) => paths,
-                Err(_) => {
-                    status_forbid(res);
-                    return Ok(());
-                }
-            }
+        let asset_file = "assets/dist/index.html";
+
+        #[cfg(debug_assertions)]
+        let index_path = {
+            use std::path::PathBuf;
+            PathBuf::from(asset_file)
         };
-        self.send_index(
-            path,
-            paths,
-            exist,
-            query_params,
-            head_only,
-            user,
-            access_paths,
-            res,
-        )
-    }
 
-    pub async fn handle_search_dir(
-        &self,
-        path: &Path,
-        query_params: &HashMap<String, String>,
-        head_only: bool,
-        user: Option<String>,
-        access_paths: AccessPaths,
-        res: &mut Response,
-    ) -> Result<()> {
-        let mut paths: Vec<PathItem> = vec![];
-        let search = query_params
-            .get("q")
-            .ok_or_else(|| anyhow!("invalid q"))?
-            .to_lowercase();
-        if search.is_empty() {
-            return self
-                .handle_ls_dir(path, true, query_params, head_only, user, access_paths, res)
-                .await;
-        } else {
-            let path_buf = path.to_path_buf();
-            let hidden = Arc::new(self.args.hidden.to_vec());
-            let search = search.clone();
+        #[cfg(not(debug_assertions))]
+        let index_path = {
+            use std::path::PathBuf;
+            std::env::current_exe()
+                .ok()
+                .and_then(|exe| exe.parent().map(|p| p.join(asset_file)))
+                .unwrap_or_else(|| PathBuf::from(asset_file))
+        };
 
-            let access_paths = access_paths.clone();
-            let search_paths = tokio::spawn(super::collect_dir_entries(
-                access_paths,
-                self.running.clone(),
-                path_buf,
-                hidden,
-                self.args.allow_symlink,
-                self.args.serve_path.clone(),
-                move |x| get_file_name(x.path()).to_lowercase().contains(&search),
-            ))
-            .await?;
-
-            for search_path in search_paths.into_iter() {
-                if let Ok(Some(item)) = self.to_pathitem(search_path, path.to_path_buf()).await {
-                    paths.push(item);
-                }
+        if index_path.exists() {
+            // Read the index file and replace the assets prefix placeholder so
+            // the server can inject the real runtime prefix (uri_prefix + assets_prefix).
+            let mut buf = String::new();
+            if !head_only {
+                buf = tokio::fs::read_to_string(&index_path)
+                    .await
+                    .unwrap_or_default();
+                buf = buf.replace(
+                    "__ASSETS_PREFIX__",
+                    &format!("{}{}", self.args.uri_prefix, self.assets_prefix),
+                );
             }
+
+            // Set headers and body similar to handle_edit_file
+            res.headers_mut()
+                .typed_insert(ContentType::from(mime_guess::mime::TEXT_HTML_UTF_8));
+            res.headers_mut()
+                .typed_insert(ContentLength(buf.len() as u64));
+            res.headers_mut()
+                .typed_insert(CacheControl::new().with_no_cache());
+            if head_only {
+                return Ok(());
+            }
+            *res.body_mut() = body_full(buf);
+        } else {
+            status_not_found(res);
         }
-        self.send_index(
-            path,
-            paths,
-            true,
-            query_params,
-            head_only,
-            user,
-            access_paths,
-            res,
-        )
+        Ok(())
     }
 
     pub async fn handle_zip_dir(
@@ -762,15 +714,11 @@ impl Server {
         Ok(())
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub async fn handle_render_index(
         &self,
         path: &Path,
-        query_params: &HashMap<String, String>,
         headers: &HeaderMap<HeaderValue>,
         head_only: bool,
-        user: Option<String>,
-        access_paths: AccessPaths,
         res: &mut Response,
     ) -> Result<()> {
         let index_path = path.join(INDEX_NAME);
@@ -783,8 +731,8 @@ impl Server {
             self.handle_send_file(&index_path, headers, head_only, res)
                 .await?;
         } else if self.args.render_try_index {
-            self.handle_ls_dir(path, true, query_params, head_only, user, access_paths, res)
-                .await?;
+            // Fallback to SPA index.html for directory browsing
+            self.handle_spa_index(headers, head_only, res).await?;
         } else {
             status_not_found(res)
         }
@@ -833,11 +781,35 @@ impl Server {
                     .unwrap_or_else(|| PathBuf::from(&asset_file))
             };
 
-            if path.exists() {
+            if path.exists() && path.is_file() {
                 self.handle_send_file(&path, _headers, false, res).await?;
                 return Ok(true);
             } else {
-                status_not_found(res);
+                let asset_file = "assets/dist/index.html";
+                #[cfg(debug_assertions)]
+                let root_index = {
+                    use std::path::PathBuf;
+                    PathBuf::from(asset_file)
+                };
+                #[cfg(not(debug_assertions))]
+                let root_index = {
+                    use std::path::PathBuf;
+                    std::env::current_exe()
+                        .ok()
+                        .and_then(|exe| exe.parent().map(|p| p.join(asset_file)))
+                        .unwrap_or_else(|| PathBuf::from(asset_file))
+                };
+                if root_index.exists() && root_index.is_file() {
+                    self.handle_send_file(&root_index, _headers, false, res)
+                        .await?;
+                    return Ok(true);
+                } else {
+                    status_not_found(res);
+                    // We wrote a 404 response for this internal asset request --
+                    // indicate the request was handled so the caller doesn't continue
+                    // processing the path.
+                    return Ok(true);
+                }
             }
         } else if req_path == HEALTH_CHECK_PATH {
             res.headers_mut()
@@ -846,7 +818,65 @@ impl Server {
             *res.body_mut() = body_full(r#"{"status":"OK"}"#);
             return Ok(true);
         }
+
         Ok(false)
+    }
+
+    /// Serve public SPA assets from `assets/dist/*` for non-/api requests.
+    /// Returns Ok(true) when the request has been handled (including 404).
+    pub async fn handle_public(
+        &self,
+        uri_path: &str,
+        headers: &HeaderMap<HeaderValue>,
+        res: &mut Response,
+    ) -> Result<bool> {
+        // Normalize path: strip leading '/'
+        let rel = uri_path.strip_prefix('/').unwrap_or(uri_path);
+        let asset_file = format!("assets/dist/{}", rel.trim_start_matches('/'));
+
+        #[cfg(debug_assertions)]
+        let path = {
+            use std::path::PathBuf;
+            PathBuf::from(&asset_file)
+        };
+
+        #[cfg(not(debug_assertions))]
+        let path = {
+            use std::path::PathBuf;
+            std::env::current_exe()
+                .ok()
+                .and_then(|exe| exe.parent().map(|p| p.join(&asset_file)))
+                .unwrap_or_else(|| PathBuf::from(&asset_file))
+        };
+
+        if path.exists() && path.is_file() {
+            self.handle_send_file(&path, headers, false, res).await?;
+            return Ok(true);
+        }
+
+        // Fallback to bundled index.html (for SPA client-side routing)
+        let asset_file = "assets/dist/index.html";
+        #[cfg(debug_assertions)]
+        let root_index = {
+            use std::path::PathBuf;
+            PathBuf::from(asset_file)
+        };
+        #[cfg(not(debug_assertions))]
+        let root_index = {
+            use std::path::PathBuf;
+            std::env::current_exe()
+                .ok()
+                .and_then(|exe| exe.parent().map(|p| p.join(asset_file)))
+                .unwrap_or_else(|| PathBuf::from(asset_file))
+        };
+        if root_index.exists() && root_index.is_file() {
+            self.handle_send_file(&root_index, headers, false, res)
+                .await?;
+            return Ok(true);
+        }
+
+        status_not_found(res);
+        Ok(true)
     }
 
     pub async fn handle_send_file(
@@ -1061,102 +1091,6 @@ impl Server {
         res.headers_mut()
             .typed_insert(ContentLength(output.len() as u64));
         *res.body_mut() = body_full(output);
-        Ok(())
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    pub fn send_index(
-        &self,
-        path: &Path,
-        mut paths: Vec<PathItem>,
-        exist: bool,
-        query_params: &HashMap<String, String>,
-        head_only: bool,
-        user: Option<String>,
-        access_paths: AccessPaths,
-        res: &mut Response,
-    ) -> Result<()> {
-        if let Some(sort) = query_params.get("sort") {
-            if sort == "name" {
-                paths.sort_by(|v1, v2| v1.sort_by_name(v2))
-            } else if sort == "mtime" {
-                paths.sort_by(|v1, v2| v1.sort_by_mtime(v2))
-            } else if sort == "size" {
-                paths.sort_by(|v1, v2| v1.sort_by_size(v2))
-            }
-            if query_params
-                .get("order")
-                .map(|v| v == "desc")
-                .unwrap_or_default()
-            {
-                paths.reverse()
-            }
-        } else {
-            paths.sort_by(|v1, v2| v1.sort_by_name(v2))
-        }
-        if has_query_flag(query_params, "simple") {
-            let output = paths
-                .into_iter()
-                .map(|v| {
-                    if v.is_dir() {
-                        format!("{}/\n", v.name)
-                    } else {
-                        format!("{}\n", v.name)
-                    }
-                })
-                .collect::<Vec<String>>()
-                .join("");
-            res.headers_mut()
-                .typed_insert(ContentType::from(mime_guess::mime::TEXT_HTML_UTF_8));
-            res.headers_mut()
-                .typed_insert(ContentLength(output.len() as u64));
-            *res.body_mut() = body_full(output);
-            if head_only {
-                return Ok(());
-            }
-            return Ok(());
-        }
-        let href = format!(
-            "/{}",
-            normalize_path(path.strip_prefix(&self.args.serve_path)?)
-        );
-        let readwrite = access_paths.perm().readwrite();
-        let data = IndexData {
-            kind: DataKind::Index,
-            href,
-            uri_prefix: self.args.uri_prefix.clone(),
-            allow_upload: self.args.allow_upload && readwrite,
-            allow_delete: self.args.allow_delete && readwrite,
-            allow_search: self.args.allow_search,
-            allow_archive: self.args.allow_archive,
-            dir_exists: exist,
-            auth: self.args.auth.has_users(),
-            user,
-            paths,
-        };
-        if has_query_flag(query_params, "json") {
-            let output = serde_json::to_string_pretty(&data)?;
-            res.headers_mut()
-                .typed_insert(ContentType::from(mime_guess::mime::APPLICATION_JSON));
-            res.headers_mut()
-                .typed_insert(ContentLength(output.len() as u64));
-            if !head_only {
-                *res.body_mut() = body_full(output);
-            }
-        } else if has_query_flag(query_params, "noscript") {
-            let output = generate_noscript_html(&data)?;
-            set_html_response(res, output, true);
-        } else {
-            let index_data = STANDARD.encode(serde_json::to_string(&data)?);
-            let output = self
-                .html
-                .replace(
-                    "__ASSETS_PREFIX__",
-                    &format!("{}{}", self.args.uri_prefix, self.assets_prefix),
-                )
-                .replace("__INDEX_DATA__", &index_data);
-            set_html_response(res, output, true);
-        }
         Ok(())
     }
 
@@ -1598,7 +1532,7 @@ async fn ensure_path_parent(path: &Path) -> Result<()> {
     Ok(())
 }
 
-pub(crate) fn has_query_flag(query_params: &HashMap<String, String>, name: &str) -> bool {
+pub(super) fn has_query_flag(query_params: &HashMap<String, String>, name: &str) -> bool {
     query_params
         .get(name)
         .map(|v| v.is_empty())

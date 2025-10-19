@@ -99,18 +99,36 @@ export async function calculateSHA256(
   });
 }
 
-export function baseUrl(): string {
-  return location.href.split(/[?#]/)[0];
+/**
+ * Get current path for API requests (with /api prefix)
+ */
+export function apiPath(relativePath: string = ""): string {
+  const currentPath = location.pathname;
+  let basePath = currentPath;
+
+  // Build the full path
+  if (relativePath) {
+    if (!basePath.endsWith("/")) basePath += "/";
+    basePath += relativePath.split("/").map(encodeURIComponent).join("/");
+  }
+
+  return "/api" + basePath;
 }
 
 /**
- * Encodes a string to be safely included in a URL path segment
+ * Get current path for direct file access (without /api prefix, for downloads)
  */
-export function newUrl(name: string): string {
-  let url = baseUrl();
-  if (!url.endsWith("/")) url += "/";
-  url += name.split("/").map(encodeURIComponent).join("/");
-  return url;
+export function filePath(relativePath: string = ""): string {
+  const currentPath = location.pathname;
+  let basePath = currentPath;
+
+  // Build the full path
+  if (relativePath) {
+    if (!basePath.endsWith("/")) basePath += "/";
+    basePath += relativePath.split("/").map(encodeURIComponent).join("/");
+  }
+
+  return basePath;
 }
 
 export function baseName(url: string): string {

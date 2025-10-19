@@ -1,11 +1,12 @@
 import { useState, useEffect } from "react";
 import { Flex, Layout, Typography } from "antd";
+import { useLocation } from "react-router-dom";
 import FilesTable from "./components/files-table";
 import { Header } from "./components/layout/header";
 import { Breadcrumb } from "./components/layout/breadcrumb";
 import UppyUploader from "./components/uppy-uploader";
-import { decodeBase64 } from "./utils";
 import { uppyStore } from "./store/uppyStore";
+import { apiPath, filePath } from "./utils";
 
 const { Content } = Layout;
 
@@ -49,13 +50,31 @@ export interface DATA {
 function App() {
   const [data, setData] = useState<DATA | null>(null);
   const [loading, setLoading] = useState(true);
+  const location = useLocation();
 
   useEffect(() => {
-    // Load data from the embedded script tag
-    const $indexData = document.getElementById("index-data");
-    if ($indexData) {
+    // Fetch data from API endpoint
+    const fetchData = async () => {
+      setLoading(true);
       try {
-        const parsedData = JSON.parse(decodeBase64($indexData.innerHTML));
+        // Get current path from URL
+        const currentPath = location.pathname;
+        const searchParams = new URLSearchParams(location.search);
+
+        // Build API URL - prepend /api to the current path
+        let apiUrl = `/api${currentPath}`;
+
+        // Preserve query parameters (like ?q=search)
+        if (searchParams.toString()) {
+          apiUrl += `?${searchParams.toString()}`;
+        }
+
+        const response = await fetch(apiUrl);
+        if (!response.ok) {
+          throw new Error(`Failed to fetch data: ${response.status}`);
+        }
+
+        const parsedData = await response.json();
         setData(parsedData);
 
         // Set document title
@@ -67,27 +86,19 @@ function App() {
           document.title = `View ${parsedData.href} - Node Drive`;
         }
       } catch (err) {
-        console.error("Failed to parse data:", err);
+        console.error("Failed to fetch data:", err);
+      } finally {
+        setLoading(false);
       }
-    }
-    setLoading(false);
-  }, []);
+    };
 
-  const baseUrl = (): string => {
-    return window.location.href.split(/[?#]/)[0];
-  };
-
-  const newUrl = (name: string): string => {
-    let url = baseUrl();
-    if (!url.endsWith("/")) url += "/";
-    url += name.split("/").map(encodeURIComponent).join("/");
-    return url;
-  };
+    fetchData();
+  }, [location.pathname, location.search]);
 
   const checkAuth = async (variant?: string) => {
     if (!data?.auth) return;
     const qs = variant ? `?${variant}` : "";
-    const res = await fetch(baseUrl() + qs, {
+    const res = await fetch(apiPath() + qs, {
       method: "CHECKAUTH",
     });
     if (!(res.status >= 200 && res.status < 300)) {
@@ -97,17 +108,17 @@ function App() {
 
   const logout = () => {
     if (!data?.auth) return;
-    const url = baseUrl();
+    const url = apiPath();
     const xhr = new XMLHttpRequest();
     xhr.open("LOGOUT", url, true, data.user);
     xhr.onload = () => {
-      window.location.href = url;
+      window.location.href = "/";
     };
     xhr.send();
   };
 
   const createFolder = async (name: string) => {
-    const url = newUrl(name);
+    const url = apiPath(name);
     try {
       await checkAuth();
       const res = await fetch(url, {
@@ -116,7 +127,7 @@ function App() {
       if (!(res.status >= 200 && res.status < 300)) {
         throw new Error((await res.text()) || `Invalid status ${res.status}`);
       }
-      window.location.href = url;
+      window.location.href = filePath(name);
     } catch (err) {
       alert(`Cannot create folder \`${name}\`, ${(err as Error).message}`);
     }
@@ -138,7 +149,7 @@ function App() {
         allowUpload={data.allow_upload}
         allowSearch={data.allow_search}
         onSearch={(query: string) => {
-          const href = baseUrl();
+          const href = location.pathname;
           window.location.href = query ? `${href}?q=${query}` : href;
         }}
         onLogin={async () => {

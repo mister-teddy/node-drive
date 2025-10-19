@@ -21,7 +21,7 @@ import {
   CopyOutlined,
 } from "@ant-design/icons";
 import { useSpring, animated } from "@react-spring/web";
-import { formatHashShort } from "../utils";
+import { formatHashShort, apiPath } from "../utils";
 
 const { Text } = Typography;
 
@@ -110,17 +110,6 @@ export default function Provenance({
   };
 
   /**
-   * Construct URL for the file
-   */
-  const newUrl = (name: string): string => {
-    const href = window.location.href.split("?")[0];
-    if (!href.endsWith("/")) {
-      return href + "/" + encodeURIComponent(name);
-    }
-    return href + encodeURIComponent(name);
-  };
-
-  /**
    * Fetch provenance data for this file
    */
   const fetchProvenanceData = async () => {
@@ -131,7 +120,7 @@ export default function Provenance({
     setIsLoading(true);
 
     try {
-      const url = newUrl(fileName) + "?manifest=json";
+      const url = apiPath(fileName) + "?manifest=json";
       const response = await fetch(url);
 
       if (response.ok) {
@@ -156,7 +145,7 @@ export default function Provenance({
     setIsLoadingOtsInfo(true);
 
     try {
-      const url = newUrl(fileName) + "?ots-info";
+      const url = apiPath(fileName) + "?ots-info";
       const response = await fetch(url);
 
       if (response.ok) {
@@ -271,7 +260,16 @@ export default function Provenance({
 
   // Render simple side of card (like the badge, user-friendly)
   const renderSimpleSide = () => {
-    if (!manifest) return null;
+    if (!manifest) {
+      return (
+        <div style={{ padding: "40px", textAlign: "center" }}>
+          <Spin size="large" />
+          <div style={{ marginTop: 16 }}>
+            <Text type="secondary">Loading provenance data...</Text>
+          </div>
+        </div>
+      );
+    }
 
     const stampStatusObj = typeof stampStatus === "string" ? null : stampStatus;
     const firstEvent = manifest.events?.[0];
@@ -387,7 +385,16 @@ export default function Provenance({
 
   // Render detailed side of card (cryptographic details)
   const renderDetailedSide = () => {
-    if (!manifest) return null;
+    if (!manifest) {
+      return (
+        <div style={{ padding: "40px", textAlign: "center" }}>
+          <Spin size="large" />
+          <div style={{ marginTop: 16 }}>
+            <Text type="secondary">Loading provenance data...</Text>
+          </div>
+        </div>
+      );
+    }
 
     const hash = manifest.artifact?.sha256_hex || "";
     const stampStatusObj = typeof stampStatus === "string" ? null : stampStatus;

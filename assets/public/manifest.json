@@ -1,0 +1,17 @@
+{
+  "name": "Node Drive",
+  "short_name": "Node Drive",
+  "description": "File server with digital provenance",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#1890ff",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "/favicon.ico",
+      "sizes": "any",
+      "type": "image/x-icon"
+    }
+  ]
+}

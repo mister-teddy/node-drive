@@ -12,8 +12,10 @@ import {
   DeleteOutlined,
   DragOutlined,
 } from "@ant-design/icons";
-import { formatMtime, formatFileSize, formatDirSize } from "../utils";
+import { formatMtime, formatFileSize, formatDirSize, apiPath, filePath } from "../utils";
 import Provenance from "./provenance";
+import { Link } from "react-router-dom";
+import FilePreviewDrawer from "./file-preview-drawer";
 
 export interface PathItem {
   path_type: "Dir" | "SymlinkDir" | "File" | "SymlinkFile";
@@ -52,14 +54,10 @@ interface FilesTableProps {
 
 export default function FilesTable({ DATA }: FilesTableProps) {
   const [paths, setPaths] = useState(DATA.paths || []);
-
-  const newUrl = (name: string): string => {
-    const href = window.location.href.split("?")[0];
-    if (!href.endsWith("/")) {
-      return href + "/" + encodeURIComponent(name);
-    }
-    return href + encodeURIComponent(name);
-  };
+  const [previewFile, setPreviewFile] = useState<string | null>(null);
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const [draggedFile, setDraggedFile] = useState<PathItem | null>(null);
+  const [dragOverFolder, setDragOverFolder] = useState<string | null>(null);
 
   const getFileIcon = (file: PathItem) => {
     const isDir = file.path_type.endsWith("Dir");
@@ -110,7 +108,7 @@ export default function FilesTable({ DATA }: FilesTableProps) {
     if (!confirm(`Delete "${file.name}"?`)) return;
 
     try {
-      const url = newUrl(file.name);
+      const url = apiPath(file.name);
       const res = await fetch(url, {
         method: "DELETE",
       });
@@ -127,26 +125,42 @@ export default function FilesTable({ DATA }: FilesTableProps) {
     }
   };
 
-  const handleMove = async (file: PathItem) => {
-    const fileUrl = newUrl(file.name);
-    const fileUrlObj = new URL(fileUrl);
-    const prefix = DATA.uri_prefix?.slice(0, -1) || "";
-    const filePath = decodeURIComponent(
-      fileUrlObj.pathname.slice(prefix.length)
-    );
+  const handleMove = async (file: PathItem, newPath?: string | null) => {
+    const currentFilePath = location.pathname + (location.pathname.endsWith("/") ? "" : "/") + file.name;
 
-    let newPath = prompt("Enter new path", filePath);
+    if (!newPath) {
+      newPath = prompt("Enter new path", currentFilePath) || undefined;
+    }
+
     if (!newPath) return;
     if (!newPath.startsWith("/")) newPath = "/" + newPath;
-    if (filePath === newPath) return;
+    if (currentFilePath === newPath) return;
 
-    const newFileUrl =
-      fileUrlObj.origin +
-      prefix +
-      newPath.split("/").map(encodeURIComponent).join("/");
+    const apiFileUrl = apiPath(file.name);
+
+    // Extract the relative path from the absolute newPath
+    // newPath is like "/Photos/Screenshot.png", need to convert to properly encoded path
+    const pathSegments = newPath.split("/").filter(Boolean);
+    const fileName = pathSegments.pop(); // Get the filename
+    const folderPath = "/" + pathSegments.join("/"); // Get the folder path
+
+    // Build properly encoded destination path
+    // Note: We encode the path but DON'T add /api prefix for the Destination header
+    // The backend expects the destination path WITHOUT /api prefix
+    let destinationPath = folderPath;
+    if (!destinationPath.endsWith("/")) destinationPath += "/";
+    destinationPath += fileName?.split("/").map(encodeURIComponent).join("/");
+
+    // WebDAV requires full URL in Destination header (without /api prefix!)
+    const destinationUrl = window.location.origin + destinationPath;
+
+    // Build the API URL for checking if destination exists
+    let apiNewFileUrl = "/api" + folderPath;
+    if (!apiNewFileUrl.endsWith("/")) apiNewFileUrl += "/";
+    apiNewFileUrl += fileName?.split("/").map(encodeURIComponent).join("/");
 
     try {
-      const res1 = await fetch(newFileUrl, {
+      const res1 = await fetch(apiNewFileUrl, {
         method: "HEAD",
       });
       if (res1.status === 200) {
@@ -155,21 +169,114 @@ export default function FilesTable({ DATA }: FilesTableProps) {
         }
       }
 
-      const res2 = await fetch(fileUrl, {
+      const res2 = await fetch(apiFileUrl, {
         method: "MOVE",
         headers: {
-          Destination: newFileUrl,
+          Destination: destinationUrl,
         },
       });
 
       if (!res2.ok) {
-        throw new Error(`HTTP ${res2.status}: ${res2.statusText}`);
+        const errorText = await res2.text();
+        throw new Error(`HTTP ${res2.status}: ${errorText || res2.statusText}`);
       }
 
       location.reload();
     } catch (err) {
       const error = err as Error;
-      alert(`Cannot move "${filePath}" to "${newPath}": ${error.message}`);
+      alert(`Cannot move "${currentFilePath}" to "${newPath}": ${error.message}`);
+    }
+  };
+
+  const handleFileClick = (file: PathItem) => {
+    setPreviewFile(file.name);
+    setIsDrawerOpen(true);
+  };
+
+  const handleDrawerClose = () => {
+    setIsDrawerOpen(false);
+    setPreviewFile(null);
+  };
+
+  // Drag and drop handlers
+  const handleDragStart = (e: React.DragEvent, file: PathItem) => {
+    setDraggedFile(file);
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", file.name);
+
+    // Create a custom drag image with the file name
+    const dragImage = document.createElement("div");
+    dragImage.style.position = "absolute";
+    dragImage.style.top = "-1000px";
+    dragImage.style.padding = "8px 12px";
+    dragImage.style.backgroundColor = "#1890ff";
+    dragImage.style.color = "white";
+    dragImage.style.borderRadius = "4px";
+    dragImage.style.fontSize = "14px";
+    dragImage.style.fontWeight = "500";
+    dragImage.textContent = `Moving: ${file.name}`;
+    document.body.appendChild(dragImage);
+    e.dataTransfer.setDragImage(dragImage, 0, 0);
+    setTimeout(() => document.body.removeChild(dragImage), 0);
+
+    // Add visual feedback
+    if (e.currentTarget instanceof HTMLElement) {
+      e.currentTarget.style.opacity = "0.5";
+    }
+  };
+
+  const handleDragEnd = (e: React.DragEvent) => {
+    setDraggedFile(null);
+    setDragOverFolder(null);
+
+    // Remove visual feedback
+    if (e.currentTarget instanceof HTMLElement) {
+      e.currentTarget.style.opacity = "1";
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent, targetFile: PathItem) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    const isDir = targetFile.path_type.endsWith("Dir");
+
+    // Only allow dropping on folders
+    if (isDir && draggedFile && draggedFile.name !== targetFile.name) {
+      e.dataTransfer.dropEffect = "move";
+      setDragOverFolder(targetFile.name);
+    } else {
+      e.dataTransfer.dropEffect = "none";
+    }
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOverFolder(null);
+  };
+
+  const handleDrop = async (e: React.DragEvent, targetFolder: PathItem) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    setDragOverFolder(null);
+
+    const isDir = targetFolder.path_type.endsWith("Dir");
+
+    if (!draggedFile || !isDir || draggedFile.name === targetFolder.name) {
+      return;
+    }
+
+    // Build the new path
+    const currentPath = location.pathname.endsWith("/")
+      ? location.pathname
+      : location.pathname + "/";
+    const newPath = currentPath + targetFolder.name + "/" + draggedFile.name;
+
+    try {
+      await handleMove(draggedFile, newPath);
+    } catch (err) {
+      console.error("Drop failed:", err);
     }
   };
 
@@ -180,18 +287,26 @@ export default function FilesTable({ DATA }: FilesTableProps) {
       key: "name",
       render: (name: string, file: PathItem) => {
         const isDir = file.path_type.endsWith("Dir");
-        const url = newUrl(file.name) + (isDir ? "/" : "");
+        const path = filePath(file.name) + (isDir ? "/" : "");
 
         return (
           <Space>
             {getFileIcon(file)}
-            <a
-              href={url}
-              target={isDir ? undefined : "_blank"}
-              style={{ color: "#1890ff", fontWeight: 500 }}
-            >
-              {name}
-            </a>
+            {isDir ? (
+              <Link to={path} style={{ color: "#1890ff", fontWeight: 500 }}>
+                {name}
+              </Link>
+            ) : (
+              <a
+                onClick={(e) => {
+                  e.preventDefault();
+                  handleFileClick(file);
+                }}
+                style={{ color: "#1890ff", fontWeight: 500, cursor: "pointer" }}
+              >
+                {name}
+              </a>
+            )}
           </Space>
         );
       },
@@ -232,7 +347,7 @@ export default function FilesTable({ DATA }: FilesTableProps) {
       width: 150,
       render: (_: unknown, file: PathItem) => {
         const isDir = file.path_type.endsWith("Dir");
-        const url = newUrl(file.name) + (isDir ? "/" : "");
+        const path = filePath(file.name) + (isDir ? "/" : "");
 
         return (
           <Space>
@@ -240,7 +355,7 @@ export default function FilesTable({ DATA }: FilesTableProps) {
               <Button
                 type="text"
                 icon={<DownloadOutlined />}
-                href={url + (isDir && DATA.allow_archive ? "?zip" : "")}
+                href={path + (isDir && DATA.allow_archive ? "?zip" : "")}
                 download
                 size="small"
               />
@@ -294,14 +409,43 @@ export default function FilesTable({ DATA }: FilesTableProps) {
   }
 
   return (
-    <div style={{ padding: "0 24px 24px" }}>
-      <Table
-        columns={columns}
-        dataSource={paths}
-        rowKey="name"
-        pagination={false}
-        style={{ background: "#fff" }}
+    <>
+      <div style={{ padding: "0 24px 24px" }}>
+        <Table
+          columns={columns}
+          dataSource={paths}
+          rowKey="name"
+          pagination={false}
+          style={{ background: "#fff" }}
+          onRow={(record: PathItem) => {
+            const isFolder = record.path_type.endsWith("Dir");
+            const isDragging = draggedFile?.name === record.name;
+            const isDropTarget = dragOverFolder === record.name;
+
+            return {
+              draggable: true,
+              onDragStart: (e) => handleDragStart(e, record),
+              onDragEnd: handleDragEnd,
+              onDragOver: (e) => handleDragOver(e, record),
+              onDragLeave: handleDragLeave,
+              onDrop: (e) => handleDrop(e, record),
+              style: {
+                cursor: isDragging ? "grabbing" : "grab",
+                opacity: isDragging ? 0.5 : 1,
+                backgroundColor: isDropTarget && isFolder ? "#e6f7ff" : undefined,
+                borderLeft: isDropTarget && isFolder ? "3px solid #1890ff" : undefined,
+                transition: "all 0.2s ease",
+              },
+            };
+          }}
+        />
+      </div>
+
+      <FilePreviewDrawer
+        open={isDrawerOpen}
+        fileName={previewFile}
+        onClose={handleDrawerClose}
       />
-    </div>
+    </>
   );
 }

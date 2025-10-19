@@ -27,8 +27,27 @@ pub async fn handle_copy(path: &Path, dest: &Path, res: &mut Response) -> Result
     Ok(())
 }
 
-pub async fn handle_move(path: &Path, dest: &Path, res: &mut Response) -> Result<()> {
+pub async fn handle_move(
+    path: &Path,
+    dest: &Path,
+    res: &mut Response,
+    provenance_db: Option<&crate::provenance::ProvenanceDb>,
+) -> Result<()> {
     ensure_path_parent(dest).await?;
+
+    // Update provenance database if available
+    if let Some(db) = provenance_db {
+        let old_path_str = path.to_string_lossy().to_string();
+        let new_path_str = dest.to_string_lossy().to_string();
+
+        // Update the file_path in the database to reflect the move
+        if let Err(e) = db.update_artifact_path(&old_path_str, &new_path_str) {
+            // Log the error but don't fail the move operation
+            eprintln!("Warning: Failed to update provenance database for moved file: {}", e);
+        }
+    }
+
+    // Perform the actual file system move
     fs::rename(path, dest).await?;
     status_no_content(res);
     Ok(())
