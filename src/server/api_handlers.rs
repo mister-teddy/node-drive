@@ -145,9 +145,33 @@ impl Server {
             }
         }
 
-        // Sort and return as JSON
+        // Sort results
         self.sort_paths(&mut paths, query_params);
 
+        // Handle simple text format
+        if has_query_flag(query_params, "simple") {
+            let output = paths
+                .into_iter()
+                .map(|v| {
+                    if v.is_dir() {
+                        format!("{}/\n", v.name)
+                    } else {
+                        format!("{}\n", v.name)
+                    }
+                })
+                .collect::<Vec<String>>()
+                .join("");
+            res.headers_mut()
+                .typed_insert(ContentType::from(mime_guess::mime::TEXT_PLAIN_UTF_8));
+            res.headers_mut()
+                .typed_insert(ContentLength(output.len() as u64));
+            if !head_only {
+                *res.body_mut() = body_full(output);
+            }
+            return Ok(());
+        }
+
+        // Return as JSON
         let href = format!(
             "/{}",
             normalize_path(path.strip_prefix(&self.args.serve_path)?)

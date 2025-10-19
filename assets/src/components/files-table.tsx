@@ -12,10 +12,24 @@ import {
   DeleteOutlined,
   DragOutlined,
 } from "@ant-design/icons";
-import { formatMtime, formatFileSize, formatDirSize, apiPath, filePath } from "../utils";
+import {
+  formatMtime,
+  formatFileSize,
+  formatDirSize,
+  apiPath,
+  filePath,
+} from "../utils";
 import Provenance from "./provenance";
 import { Link } from "react-router-dom";
 import FilePreviewDrawer from "./file-preview-drawer";
+import { useAtomValue, useSetAtom } from "jotai";
+import {
+  dataAtom,
+  pathsAtom,
+  allowUploadAtom,
+  allowDeleteAtom,
+  allowArchiveAtom,
+} from "../state";
 
 export interface PathItem {
   path_type: "Dir" | "SymlinkDir" | "File" | "SymlinkFile";
@@ -39,21 +53,19 @@ export interface PathItem {
   };
 }
 
-interface DATA {
-  paths: PathItem[];
-  allow_upload: boolean;
-  allow_delete: boolean;
-  allow_archive: boolean;
-  user: string;
-  uri_prefix?: string;
-}
-
 interface FilesTableProps {
-  DATA: DATA;
+  loading?: boolean;
 }
 
-export default function FilesTable({ DATA }: FilesTableProps) {
-  const [paths, setPaths] = useState(DATA.paths || []);
+export default function FilesTable({ loading }: FilesTableProps) {
+  const DATA = useAtomValue(dataAtom);
+  const paths = useAtomValue(pathsAtom);
+  const allowUpload = useAtomValue(allowUploadAtom);
+  const allowDelete = useAtomValue(allowDeleteAtom);
+  const allowArchive = useAtomValue(allowArchiveAtom);
+  const refreshData = useSetAtom(dataAtom);
+
+  console.log({ DATA, paths });
   const [previewFile, setPreviewFile] = useState<string | null>(null);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [draggedFile, setDraggedFile] = useState<PathItem | null>(null);
@@ -117,8 +129,8 @@ export default function FilesTable({ DATA }: FilesTableProps) {
         throw new Error(`HTTP ${res.status}: ${res.statusText}`);
       }
 
-      const newPaths = paths.filter((p) => p.name !== file.name);
-      setPaths(newPaths);
+      // Refresh data from server to update the file list
+      refreshData();
     } catch (err) {
       const error = err as Error;
       alert(`Cannot delete "${file.name}": ${error.message}`);
@@ -126,7 +138,10 @@ export default function FilesTable({ DATA }: FilesTableProps) {
   };
 
   const handleMove = async (file: PathItem, newPath?: string | null) => {
-    const currentFilePath = location.pathname + (location.pathname.endsWith("/") ? "" : "/") + file.name;
+    const currentFilePath =
+      location.pathname +
+      (location.pathname.endsWith("/") ? "" : "/") +
+      file.name;
 
     if (!newPath) {
       newPath = prompt("Enter new path", currentFilePath) || undefined;
@@ -184,7 +199,9 @@ export default function FilesTable({ DATA }: FilesTableProps) {
       location.reload();
     } catch (err) {
       const error = err as Error;
-      alert(`Cannot move "${currentFilePath}" to "${newPath}": ${error.message}`);
+      alert(
+        `Cannot move "${currentFilePath}" to "${newPath}": ${error.message}`
+      );
     }
   };
 
@@ -355,13 +372,13 @@ export default function FilesTable({ DATA }: FilesTableProps) {
               <Button
                 type="text"
                 icon={<DownloadOutlined />}
-                href={path + (isDir && DATA.allow_archive ? "?zip" : "")}
+                href={path + (isDir && allowArchive ? "?zip" : "")}
                 download
                 size="small"
               />
             </Tooltip>
 
-            {DATA.allow_upload && DATA.allow_delete && (
+            {allowUpload && allowDelete && (
               <Tooltip title="Move to new path">
                 <Button
                   type="text"
@@ -372,7 +389,7 @@ export default function FilesTable({ DATA }: FilesTableProps) {
               </Tooltip>
             )}
 
-            {DATA.allow_delete && (
+            {allowDelete && (
               <Tooltip title="Delete">
                 <Button
                   type="text"
@@ -412,6 +429,7 @@ export default function FilesTable({ DATA }: FilesTableProps) {
     <>
       <div style={{ padding: "0 24px 24px" }}>
         <Table
+          loading={loading}
           columns={columns}
           dataSource={paths}
           rowKey="name"
@@ -432,8 +450,10 @@ export default function FilesTable({ DATA }: FilesTableProps) {
               style: {
                 cursor: isDragging ? "grabbing" : "grab",
                 opacity: isDragging ? 0.5 : 1,
-                backgroundColor: isDropTarget && isFolder ? "#e6f7ff" : undefined,
-                borderLeft: isDropTarget && isFolder ? "3px solid #1890ff" : undefined,
+                backgroundColor:
+                  isDropTarget && isFolder ? "#e6f7ff" : undefined,
+                borderLeft:
+                  isDropTarget && isFolder ? "3px solid #1890ff" : undefined,
                 transition: "all 0.2s ease",
               },
             };

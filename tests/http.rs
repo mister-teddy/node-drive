@@ -8,18 +8,18 @@ use utils::retrieve_edit_file;
 
 #[rstest]
 fn get_dir(server: TestServer) -> Result<(), Error> {
-    let resp = reqwest::blocking::get(server.url())?;
+    let resp = reqwest::blocking::get(server.api_url())?;
     assert_resp_paths!(resp);
     Ok(())
 }
 
 #[rstest]
 fn head_dir(server: TestServer) -> Result<(), Error> {
-    let resp = fetch!(b"HEAD", server.url()).send()?;
+    let resp = fetch!(b"HEAD", server.api_url()).send()?;
     assert_eq!(resp.status(), 200);
     assert_eq!(
         resp.headers().get("content-type").unwrap(),
-        "text/html; charset=utf-8"
+        "application/json"
     );
     assert_eq!(resp.text()?, "");
     Ok(())
@@ -27,14 +27,14 @@ fn head_dir(server: TestServer) -> Result<(), Error> {
 
 #[rstest]
 fn get_dir_404(server: TestServer) -> Result<(), Error> {
-    let resp = reqwest::blocking::get(format!("{}404/", server.url()))?;
+    let resp = reqwest::blocking::get(format!("{}404/", server.api_url()))?;
     assert_eq!(resp.status(), 200); // Non-existent directories return 200 (allow creation)
     Ok(())
 }
 
 #[rstest]
 fn head_dir_404(server: TestServer) -> Result<(), Error> {
-    let resp = fetch!(b"HEAD", format!("{}404/", server.url())).send()?;
+    let resp = fetch!(b"HEAD", format!("{}404/", server.api_url())).send()?;
     assert_eq!(resp.status(), 200); // Non-existent directories return 200 (allow creation)
     Ok(())
 }
@@ -46,7 +46,7 @@ fn head_dir_404(server: TestServer) -> Result<(), Error> {
 #[case(server(&["--allow-archive", "--compress", "medium"]))]
 #[case(server(&["--allow-archive", "--compress", "high"]))]
 fn get_dir_zip(#[case] server: TestServer) -> Result<(), Error> {
-    let resp = reqwest::blocking::get(format!("{}?zip", server.url()))?;
+    let resp = reqwest::blocking::get(format!("{}?zip", server.api_url()))?;
     assert_eq!(resp.status(), 200);
     assert_eq!(
         resp.headers().get("content-type").unwrap(),
@@ -61,7 +61,7 @@ fn get_dir_json(
     #[with(&["--allow-upload", "--allow-delete", "--allow-search", "--allow-archive", "--allow-symlink"])]
     server: TestServer,
 ) -> Result<(), Error> {
-    let resp = reqwest::blocking::get(format!("{}?json", server.url()))?;
+    let resp = reqwest::blocking::get(format!("{}?json", server.api_url()))?;
     assert_eq!(resp.status(), 200);
     assert_eq!(
         resp.headers().get("content-type").unwrap(),
@@ -81,26 +81,10 @@ fn get_dir_simple(
     assert_eq!(resp.status(), 200);
     assert_eq!(
         resp.headers().get("content-type").unwrap(),
-        "text/html; charset=utf-8"
+        "text/plain; charset=utf-8"
     );
     let text = resp.text().unwrap();
     assert!(text.split('\n').any(|v| v == "index.html"));
-    Ok(())
-}
-
-#[rstest]
-fn get_dir_noscript(
-    #[with(&["--allow-upload", "--allow-delete", "--allow-search", "--allow-archive", "--allow-symlink"])]
-    server: TestServer,
-) -> Result<(), Error> {
-    let resp = reqwest::blocking::get(format!("{}?noscript", server.url()))?;
-    assert_eq!(resp.status(), 200);
-    assert_eq!(
-        resp.headers().get("content-type").unwrap(),
-        "text/html; charset=utf-8"
-    );
-    let text = resp.text().unwrap();
-    assert!(text.contains(r#"<td><a href="index.html">index.html</a></td>"#));
     Ok(())
 }
 
@@ -109,7 +93,7 @@ fn head_dir_zip(
     #[with(&["--allow-upload", "--allow-delete", "--allow-search", "--allow-archive", "--allow-symlink"])]
     server: TestServer,
 ) -> Result<(), Error> {
-    let resp = fetch!(b"HEAD", format!("{}?zip", server.url())).send()?;
+    let resp = fetch!(b"HEAD", format!("{}?zip", server.api_url())).send()?;
     assert_eq!(resp.status(), 200);
     assert_eq!(
         resp.headers().get("content-type").unwrap(),
@@ -125,7 +109,7 @@ fn get_dir_search(
     #[with(&["--allow-upload", "--allow-delete", "--allow-search", "--allow-archive", "--allow-symlink"])]
     server: TestServer,
 ) -> Result<(), Error> {
-    let resp = reqwest::blocking::get(format!("{}?q={}", server.url(), "test.html"))?;
+    let resp = reqwest::blocking::get(format!("{}?q={}", server.api_url(), "test.html"))?;
     assert_eq!(resp.status(), 200);
     let paths = utils::retrieve_index_paths(&resp.text()?);
     assert!(!paths.is_empty());
@@ -140,7 +124,7 @@ fn get_dir_search2(
     #[with(&["--allow-upload", "--allow-delete", "--allow-search", "--allow-archive", "--allow-symlink"])]
     server: TestServer,
 ) -> Result<(), Error> {
-    let resp = reqwest::blocking::get(format!("{}?q={BIN_FILE}", server.url()))?;
+    let resp = reqwest::blocking::get(format!("{}?q={BIN_FILE}", server.api_url()))?;
     assert_eq!(resp.status(), 200);
     let paths = utils::retrieve_index_paths(&resp.text()?);
     assert!(!paths.is_empty());
@@ -155,7 +139,7 @@ fn get_dir_search3(
     #[with(&["--allow-upload", "--allow-delete", "--allow-search", "--allow-archive", "--allow-symlink"])]
     server: TestServer,
 ) -> Result<(), Error> {
-    let resp = reqwest::blocking::get(format!("{}?q={}&simple", server.url(), "test.html"))?;
+    let resp = reqwest::blocking::get(format!("{}?q={}&simple", server.api_url(), "test.html"))?;
     assert_eq!(resp.status(), 200);
     let text = resp.text().unwrap();
     assert!(text.split('\n').any(|v| v == "test.html"));
@@ -167,7 +151,7 @@ fn get_dir_search4(
     #[with(&["--allow-upload", "--allow-delete", "--allow-search", "--allow-archive", "--allow-symlink"])]
     server: TestServer,
 ) -> Result<(), Error> {
-    let resp = reqwest::blocking::get(format!("{}dir1?q=dir1&simple", server.url()))?;
+    let resp = reqwest::blocking::get(format!("{}dir1?q=dir1&simple", server.api_url()))?;
     assert_eq!(resp.status(), 200);
     let text = resp.text().unwrap();
     assert!(text.is_empty());
@@ -183,7 +167,7 @@ fn head_dir_search(
     assert_eq!(resp.status(), 200);
     assert_eq!(
         resp.headers().get("content-type").unwrap(),
-        "text/html; charset=utf-8"
+        "text/html; charset=UTF-8"
     );
     assert_eq!(resp.text()?, "");
     Ok(())
@@ -194,14 +178,14 @@ fn empty_search(
     #[with(&["--allow-upload", "--allow-delete", "--allow-search", "--allow-archive", "--allow-symlink"])]
     server: TestServer,
 ) -> Result<(), Error> {
-    let resp = reqwest::blocking::get(format!("{}?q=", server.url()))?;
+    let resp = reqwest::blocking::get(format!("{}?q=", server.api_url()))?;
     assert_resp_paths!(resp);
     Ok(())
 }
 
 #[rstest]
 fn get_file(server: TestServer) -> Result<(), Error> {
-    let resp = reqwest::blocking::get(format!("{}index.html", server.url()))?;
+    let resp = reqwest::blocking::get(format!("{}index.html", server.api_url()))?;
     assert_eq!(resp.status(), 200);
     assert_eq!(
         resp.headers().get("content-type").unwrap(),
@@ -217,7 +201,7 @@ fn get_file(server: TestServer) -> Result<(), Error> {
 
 #[rstest]
 fn head_file(server: TestServer) -> Result<(), Error> {
-    let resp = fetch!(b"HEAD", format!("{}index.html", server.url())).send()?;
+    let resp = fetch!(b"HEAD", format!("{}index.html", server.api_url())).send()?;
     assert_eq!(resp.status(), 200);
     assert_eq!(
         resp.headers().get("content-type").unwrap(),
@@ -249,14 +233,14 @@ fn hash_file(server: TestServer) -> Result<(), Error> {
 
 #[rstest]
 fn get_file_404(server: TestServer) -> Result<(), Error> {
-    let resp = reqwest::blocking::get(format!("{}404", server.url()))?;
+    let resp = reqwest::blocking::get(format!("{}404", server.api_url()))?;
     assert_eq!(resp.status(), 404);
     Ok(())
 }
 
 #[rstest]
 fn get_file_emoji_path(server: TestServer) -> Result<(), Error> {
-    let resp = reqwest::blocking::get(format!("{}{BIN_FILE}", server.url()))?;
+    let resp = reqwest::blocking::get(format!("{}{BIN_FILE}", server.api_url()))?;
     assert_eq!(resp.status(), 200);
     assert_eq!(
         resp.headers().get("content-disposition").unwrap(),
@@ -268,7 +252,7 @@ fn get_file_emoji_path(server: TestServer) -> Result<(), Error> {
 #[cfg(not(target_os = "windows"))]
 #[rstest]
 fn get_file_newline_path(server: TestServer) -> Result<(), Error> {
-    let resp = reqwest::blocking::get(format!("{}file%0A1.txt", server.url()))?;
+    let resp = reqwest::blocking::get(format!("{}file%0A1.txt", server.api_url()))?;
     assert_eq!(resp.status(), 200);
     assert_eq!(
         resp.headers().get("content-disposition").unwrap(),
@@ -297,14 +281,14 @@ fn get_file_edit_bin(server: TestServer) -> Result<(), Error> {
 
 #[rstest]
 fn head_file_404(server: TestServer) -> Result<(), Error> {
-    let resp = fetch!(b"HEAD", format!("{}404", server.url())).send()?;
+    let resp = fetch!(b"HEAD", format!("{}404", server.api_url())).send()?;
     assert_eq!(resp.status(), 404);
     Ok(())
 }
 
 #[rstest]
 fn options_dir(server: TestServer) -> Result<(), Error> {
-    let resp = fetch!(b"OPTIONS", format!("{}index.html", server.url())).send()?;
+    let resp = fetch!(b"OPTIONS", format!("{}index.html", server.api_url())).send()?;
     assert_eq!(resp.status(), 200);
     assert_eq!(
         resp.headers().get("allow").unwrap(),
@@ -319,7 +303,7 @@ fn put_file(
     #[with(&["--allow-upload", "--allow-delete", "--allow-search", "--allow-archive", "--allow-symlink"])]
     server: TestServer,
 ) -> Result<(), Error> {
-    let url = format!("{}file1", server.url());
+    let url = format!("{}file1", server.api_url());
     let resp = fetch!(b"PUT", &url).body(b"abc".to_vec()).send()?;
     assert_eq!(resp.status(), 201);
     let resp = reqwest::blocking::get(url)?;
@@ -332,7 +316,7 @@ fn put_file_create_dir(
     #[with(&["--allow-upload", "--allow-delete", "--allow-search", "--allow-archive", "--allow-symlink"])]
     server: TestServer,
 ) -> Result<(), Error> {
-    let url = format!("{}xyz/file1", server.url());
+    let url = format!("{}xyz/file1", server.api_url());
     let resp = fetch!(b"PUT", &url).body(b"abc".to_vec()).send()?;
     assert_eq!(resp.status(), 201);
     let resp = reqwest::blocking::get(url)?;
@@ -345,7 +329,7 @@ fn put_file_conflict_dir(
     #[with(&["--allow-upload", "--allow-delete", "--allow-search", "--allow-archive", "--allow-symlink"])]
     server: TestServer,
 ) -> Result<(), Error> {
-    let url = format!("{}dir1", server.url());
+    let url = format!("{}dir1", server.api_url());
     let resp = fetch!(b"PUT", &url).body(b"abc".to_vec()).send()?;
     assert_eq!(resp.status(), 403);
     Ok(())
@@ -356,7 +340,7 @@ fn delete_file(
     #[with(&["--allow-upload", "--allow-delete", "--allow-search", "--allow-archive", "--allow-symlink"])]
     server: TestServer,
 ) -> Result<(), Error> {
-    let url = format!("{}test.html", server.url());
+    let url = format!("{}test.html", server.api_url());
     let resp = fetch!(b"DELETE", &url).send()?;
     assert_eq!(resp.status(), 204);
     let resp = reqwest::blocking::get(url)?;
@@ -369,34 +353,34 @@ fn delete_file_404(
     #[with(&["--allow-upload", "--allow-delete", "--allow-search", "--allow-archive", "--allow-symlink"])]
     server: TestServer,
 ) -> Result<(), Error> {
-    let resp = fetch!(b"DELETE", format!("{}file1", server.url())).send()?;
+    let resp = fetch!(b"DELETE", format!("{}file1", server.api_url())).send()?;
     assert_eq!(resp.status(), 404);
     Ok(())
 }
 
 #[rstest]
 fn get_file_content_type(server: TestServer) -> Result<(), Error> {
-    let resp = reqwest::blocking::get(format!("{}content-types/bin.tar", server.url()))?;
+    let resp = reqwest::blocking::get(format!("{}content-types/bin.tar", server.api_url()))?;
     assert_eq!(
         resp.headers().get("content-type").unwrap(),
         "application/x-tar"
     );
-    let resp = reqwest::blocking::get(format!("{}content-types/bin", server.url()))?;
+    let resp = reqwest::blocking::get(format!("{}content-types/bin", server.api_url()))?;
     assert_eq!(
         resp.headers().get("content-type").unwrap(),
         "application/octet-stream"
     );
-    let resp = reqwest::blocking::get(format!("{}content-types/file-utf8.txt", server.url()))?;
+    let resp = reqwest::blocking::get(format!("{}content-types/file-utf8.txt", server.api_url()))?;
     assert_eq!(
         resp.headers().get("content-type").unwrap(),
         "text/plain; charset=UTF-8"
     );
-    let resp = reqwest::blocking::get(format!("{}content-types/file-gbk.txt", server.url()))?;
+    let resp = reqwest::blocking::get(format!("{}content-types/file-gbk.txt", server.api_url()))?;
     assert_eq!(
         resp.headers().get("content-type").unwrap(),
         "text/plain; charset=GBK"
     );
-    let resp = reqwest::blocking::get(format!("{}content-types/file", server.url()))?;
+    let resp = reqwest::blocking::get(format!("{}content-types/file", server.api_url()))?;
     assert_eq!(
         resp.headers().get("content-type").unwrap(),
         "text/plain; charset=UTF-8"
@@ -406,7 +390,7 @@ fn get_file_content_type(server: TestServer) -> Result<(), Error> {
 
 #[rstest]
 fn resumable_upload(#[with(&["--allow-upload"])] server: TestServer) -> Result<(), Error> {
-    let url = format!("{}file1", server.url());
+    let url = format!("{}file1", server.api_url());
     let resp = fetch!(b"PUT", &url).body(b"abc".to_vec()).send()?;
     assert_eq!(resp.status(), 201);
     let resp = fetch!(b"PATCH", &url)

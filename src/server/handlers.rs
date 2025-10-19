@@ -30,7 +30,6 @@ use uuid::Uuid;
 use crate::auth::{AccessPaths, AccessPerm};
 use crate::file_utils;
 use crate::http_utils::{body_full, IncomingStream, LengthLimitedStream};
-use crate::noscript::detect_noscript;
 use crate::provenance::ProvenanceDb;
 use crate::utils::{encode_uri, get_file_name, parse_range, try_get_file_name};
 use crate::Args;
@@ -101,7 +100,8 @@ impl Server {
         addr: Option<SocketAddr>,
     ) -> Result<Response, hyper::Error> {
         let uri = req.uri().clone();
-        let is_api_request = uri.path().starts_with("/api");
+        let api_prefix = format!("{}api", self.args.uri_prefix);
+        let is_api_request = uri.path().starts_with(&api_prefix);
         let enable_cors = self.args.enable_cors;
         let mut http_log_data = self.args.http_logger.data(&req);
         if let Some(addr) = addr {
@@ -142,11 +142,45 @@ impl Server {
         let uri_path = req.uri().path();
         let headers = req.headers();
         let method = req.method().clone();
+        let query = req.uri().query().unwrap_or_default();
 
-        // If the request is not for the API, treat it as a public asset request
-        // and serve from assets/dist (or fallback to assets/dist/index.html). All
-        // application logic remains under /api/*.
-        if !uri_path.starts_with("/api") {
+        // Check for internal routes first (these should not require path prefix)
+        // Health check and other __dufs__ routes are always accessible
+        if uri_path.contains("__dufs__") {
+            // Strip the uri_prefix to get the actual internal path
+            // E.g., /xyz/__dufs__/health -> __dufs__/health
+            // or /__dufs__/health -> __dufs__/health
+            let req_path = uri_path
+                .strip_prefix(&self.args.uri_prefix)
+                .unwrap_or(uri_path)
+                .trim_start_matches('/');
+
+            if method == Method::GET && self.handle_internal(req_path, headers, &mut res).await? {
+                return Ok(res);
+            }
+        }
+
+        // Determine the expected API prefix based on path-prefix setting
+        // If --path-prefix is set to "dufs", API routes are at /dufs/api/*
+        // Otherwise, API routes are at /api/*
+        let api_prefix = format!("{}api", self.args.uri_prefix);
+        let api_prefix_str = api_prefix.as_str();
+
+        // Check if this request has special query parameters that require server processing
+        // These should not be served as static assets even though they're not API routes
+        let has_simple = query.contains("simple");
+        let has_search = query.contains("q=");
+        let requires_server_processing = has_simple
+            || query.contains("edit")
+            || query.contains("view")
+            || query.contains("hash")
+            || query.contains("zip")
+            || (has_search && has_simple); // search with simple returns plain text
+
+        // If the request is not for the API and doesn't have special query params,
+        // treat it as a public asset request and serve from assets/dist (or fallback
+        // to assets/dist/index.html). All application logic remains under /api/*.
+        if !uri_path.starts_with(api_prefix_str) && !requires_server_processing {
             // handle_public will always return Ok(true) after writing a response
             // (either the asset or a 404). If it returns Ok(true), we return the
             // response immediately.
@@ -156,12 +190,14 @@ impl Server {
             return Ok(res);
         }
 
-        // For API requests, strip the /api prefix and continue with the
-        // existing request handling logic.
-        let req_path = if uri_path.len() == "/api".len() {
-            "/"
+        // For API requests, strip only the /api part (not the path prefix)
+        // E.g., /dufs/api/index.html becomes /dufs/index.html
+        // This allows resolve_path to strip the path prefix correctly
+        let req_path = if uri_path == api_prefix_str || uri_path == api_prefix_str.trim_end_matches('/') {
+            self.args.uri_prefix.as_str()
         } else {
-            &uri_path["/api".len()..]
+            // Replace "api/" or "api" with empty string, keeping the prefix
+            &uri_path.replace(&format!("{}api/", self.args.uri_prefix), self.args.uri_prefix.as_str())
         };
 
         let relative_path = match self.resolve_path(req_path) {
@@ -219,10 +255,6 @@ impl Server {
             }
             (x, Some(y)) => (x, y),
         };
-
-        if detect_noscript(&user_agent) {
-            query_params.insert("noscript".to_string(), String::new());
-        }
 
         if method.as_str() == "CHECKAUTH" {
             match user.clone() {

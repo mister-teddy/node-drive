@@ -170,6 +170,11 @@ impl TestServer {
         Url::parse(&format!("{}://localhost:{}", protocol, self.port)).unwrap()
     }
 
+    pub fn api_url(&self) -> Url {
+        let protocol = if self.is_tls { "https" } else { "http" };
+        Url::parse(&format!("{}://localhost:{}/api/", protocol, self.port)).unwrap()
+    }
+
     pub fn path(&self) -> &std::path::Path {
         self.tmpdir.path()
     }

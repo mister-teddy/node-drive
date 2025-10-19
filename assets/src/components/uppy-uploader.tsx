@@ -12,9 +12,10 @@ import { apiPath } from "../utils";
 interface UppyUploaderProps {
   auth: boolean;
   onAuthRequired: () => Promise<void>;
+  onUploadComplete: () => void;
 }
 
-const UppyUploader = observer(({ auth, onAuthRequired }: UppyUploaderProps) => {
+const UppyUploader = observer(({ auth, onAuthRequired, onUploadComplete }: UppyUploaderProps) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [uppy] = useState(() => {
@@ -67,9 +68,6 @@ const UppyUploader = observer(({ auth, onAuthRequired }: UppyUploaderProps) => {
 
     uppyInstance.on("upload-success", (file: any, response: any) => {
       console.log("Upload successful:", file?.name, response);
-      setTimeout(() => {
-        location.reload();
-      }, 1000);
     });
 
     uppyInstance.on("complete", (result: any) => {
@@ -79,6 +77,10 @@ const UppyUploader = observer(({ auth, onAuthRequired }: UppyUploaderProps) => {
         if (emptyFolder && !emptyFolder.classList.contains("hidden")) {
           emptyFolder.classList.add("hidden");
         }
+        // Refetch data to show uploaded files
+        setTimeout(() => {
+          onUploadComplete();
+        }, 500);
       }
     });
 

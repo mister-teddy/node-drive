@@ -1,99 +1,37 @@
-import { useState, useEffect } from "react";
-import { Flex, Layout, Typography } from "antd";
-import { useLocation } from "react-router-dom";
+import { Suspense, useEffect, useTransition } from "react";
+import { Flex, Layout, Typography, Spin } from "antd";
+import { useLocation, useNavigate } from "react-router-dom";
+import { useAtom, useSetAtom } from "jotai";
 import FilesTable from "./components/files-table";
 import { Header } from "./components/layout/header";
 import { Breadcrumb } from "./components/layout/breadcrumb";
 import UppyUploader from "./components/uppy-uploader";
 import { uppyStore } from "./store/uppyStore";
-import { apiPath, filePath } from "./utils";
+import { apiPath } from "./utils";
+import { currentLocationAtom, dataAtom } from "./state";
 
 const { Content } = Layout;
 
-export interface PathItem {
-  path_type: "Dir" | "SymlinkDir" | "File" | "SymlinkFile";
-  name: string;
-  mtime: number;
-  size: number;
-  sha256?: string;
-  provenance?: {
-    events: Array<Record<string, unknown>>;
-  };
-  stamp_status?: {
-    success: boolean;
-    results?: {
-      bitcoin: {
-        timestamp: number;
-        height: number;
-      };
-    };
-    error?: string;
-    sha256_hex?: string;
-  };
-}
+// Re-export types for components
+export type { PathItem, DATA } from "./state";
 
-export interface DATA {
-  href: string;
-  uri_prefix: string;
-  kind: "Index" | "Edit" | "View";
-  paths: PathItem[];
-  allow_upload: boolean;
-  allow_delete: boolean;
-  allow_search: boolean;
-  allow_archive: boolean;
-  auth: boolean;
-  user: string;
-  dir_exists: boolean;
-  editable: string;
-}
-
-function App() {
-  const [data, setData] = useState<DATA | null>(null);
-  const [loading, setLoading] = useState(true);
+// Main content component wrapped in Suspense
+function AppContent() {
+  const [data, refreshData] = useAtom(dataAtom);
   const location = useLocation();
+  const navigate = useNavigate();
+  const setLocation = useSetAtom(currentLocationAtom);
+  const [isPending, startTransition] = useTransition();
 
+  // Sync location changes to Jotai state
   useEffect(() => {
-    // Fetch data from API endpoint
-    const fetchData = async () => {
-      setLoading(true);
-      try {
-        // Get current path from URL
-        const currentPath = location.pathname;
-        const searchParams = new URLSearchParams(location.search);
-
-        // Build API URL - prepend /api to the current path
-        let apiUrl = `/api${currentPath}`;
-
-        // Preserve query parameters (like ?q=search)
-        if (searchParams.toString()) {
-          apiUrl += `?${searchParams.toString()}`;
-        }
-
-        const response = await fetch(apiUrl);
-        if (!response.ok) {
-          throw new Error(`Failed to fetch data: ${response.status}`);
-        }
-
-        const parsedData = await response.json();
-        setData(parsedData);
-
-        // Set document title
-        if (parsedData.kind === "Index") {
-          document.title = `Index of ${parsedData.href} - Node Drive`;
-        } else if (parsedData.kind === "Edit") {
-          document.title = `Edit ${parsedData.href} - Node Drive`;
-        } else if (parsedData.kind === "View") {
-          document.title = `View ${parsedData.href} - Node Drive`;
-        }
-      } catch (err) {
-        console.error("Failed to fetch data:", err);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchData();
-  }, [location.pathname, location.search]);
+    startTransition(() => {
+      setLocation({
+        pathname: location.pathname,
+        search: location.search,
+      });
+    });
+  }, [location.pathname, location.search, setLocation]);
 
   const checkAuth = async (variant?: string) => {
     if (!data?.auth) return;
@@ -112,7 +50,7 @@ function App() {
     const xhr = new XMLHttpRequest();
     xhr.open("LOGOUT", url, true, data.user);
     xhr.onload = () => {
-      window.location.href = "/";
+      navigate("/");
     };
     xhr.send();
   };
@@ -127,19 +65,15 @@ function App() {
       if (!(res.status >= 200 && res.status < 300)) {
         throw new Error((await res.text()) || `Invalid status ${res.status}`);
       }
-      window.location.href = filePath(name);
+      // Navigate to the new folder
+      const folderPath = location.pathname.endsWith("/")
+        ? location.pathname + name
+        : location.pathname + "/" + name;
+      navigate(folderPath);
     } catch (err) {
       alert(`Cannot create folder \`${name}\`, ${(err as Error).message}`);
     }
   };
-
-  if (loading) {
-    return <div style={{ padding: "24px" }}>Loading...</div>;
-  }
-
-  if (!data) {
-    return <div style={{ padding: "24px" }}>No data available</div>;
-  }
 
   return (
     <Layout style={{ minHeight: "100vh", background: "#f5f5f5" }}>
@@ -150,13 +84,13 @@ function App() {
         allowSearch={data.allow_search}
         onSearch={(query: string) => {
           const href = location.pathname;
-          window.location.href = query ? `${href}?q=${query}` : href;
+          navigate(query ? `${href}?q=${query}` : href);
         }}
         onLogin={async () => {
           try {
             await checkAuth("login");
           } catch {}
-          window.location.reload();
+          refreshData();
         }}
         onLogout={logout}
         onNewFolder={() => {
@@ -168,7 +102,7 @@ function App() {
         }}
       />
 
-      <Content style={{ padding: "0" }}>
+      <Content style={{ padding: "0", position: "relative" }}>
         <Flex justify="space-between" align="center" gap="16px">
           <Breadcrumb href={data.href} uriPrefix={data.uri_prefix} />
           <Typography.Text type="secondary" style={{ padding: "0 24px" }}>
@@ -178,19 +112,55 @@ function App() {
 
         {data.kind === "Index" && (
           <>
-            <FilesTable DATA={data} />
+            <FilesTable loading={isPending} />
             {data.allow_upload && (
               <UppyUploader
                 auth={data.auth}
                 onAuthRequired={async () => {
                   await checkAuth();
                 }}
+                onUploadComplete={() => {
+                  refreshData();
+                }}
               />
             )}
           </>
         )}
       </Content>
+
+      <style>{`
+        @keyframes loadingBar {
+          0% {
+            transform: translateX(-100%);
+          }
+          100% {
+            transform: translateX(100%);
+          }
+        }
+      `}</style>
     </Layout>
+  );
+}
+
+// App wrapper with Suspense boundary
+function App() {
+  return (
+    <Suspense
+      fallback={
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "center",
+            minHeight: "100vh",
+          }}
+        >
+          <Spin size="large" tip="Loading..." />
+        </div>
+      }
+    >
+      <AppContent />
+    </Suspense>
   );
 }
 

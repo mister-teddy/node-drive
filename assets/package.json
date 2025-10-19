@@ -1,6 +1,6 @@
 {
   "name": "node-drive-assets",
-  "version": "1.12.0",
+  "version": "1.12.1",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -21,6 +21,7 @@
     "@uppy/react": "^5.1.0",
     "@uppy/xhr-upload": "^5.0.1",
     "antd": "^5.27.4",
+    "jotai": "^2.15.0",
     "mobx": "^6.15.0",
     "mobx-react-lite": "^4.1.1",
     "react": "^18.3.1",

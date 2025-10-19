@@ -7,6 +7,7 @@ use assert_fs::TempDir;
 use digest_auth_util::send_with_digest_auth;
 use fixtures::{port, tmpdir, wait_for_port, Error};
 use rstest::rstest;
+use serde_json;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
@@ -23,22 +24,38 @@ fn use_config_file(tmpdir: TempDir, port: u16) -> Result<(), Error> {
 
     wait_for_port(port);
 
-    let url = format!("http://localhost:{port}/dufs/index.html");
+    let url = format!("http://localhost:{port}/dufs/api/index.html");
     let resp = fetch!(b"GET", &url).send()?;
     assert_eq!(resp.status(), 401);
 
-    let url = format!("http://localhost:{port}/dufs/index.html");
+    let url = format!("http://localhost:{port}/dufs/api/index.html");
     let resp = send_with_digest_auth(fetch!(b"GET", &url), "user", "pass")?;
     assert_eq!(resp.text()?, "This is index.html");
 
-    let url = format!("http://localhost:{port}/dufs?simple");
+    let url = format!("http://localhost:{port}/dufs/api/");
     let resp = send_with_digest_auth(fetch!(b"GET", &url), "user", "pass")?;
-    let text: String = resp.text().unwrap();
-    assert!(text.split('\n').any(|c| c == "dir1/"));
-    assert!(!text.split('\n').any(|c| c == "dir3/"));
-    assert!(!text.split('\n').any(|c| c == "test.txt"));
+    let json: serde_json::Value = resp.json()?;
+    let paths: Vec<String> = json
+        .get("paths")
+        .unwrap()
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| {
+            let name = v.get("name").unwrap().as_str().unwrap();
+            let path_type = v.get("path_type").unwrap().as_str().unwrap();
+            if path_type.ends_with("Dir") {
+                format!("{name}/")
+            } else {
+                name.to_owned()
+            }
+        })
+        .collect();
+    assert!(paths.iter().any(|c| c == "dir1/"));
+    assert!(!paths.iter().any(|c| c == "dir3/"));
+    assert!(!paths.iter().any(|c| c == "test.txt"));
 
-    let url = format!("http://localhost:{port}/dufs/dir1/upload.txt");
+    let url = format!("http://localhost:{port}/dufs/api/dir1/upload.txt");
     let resp = send_with_digest_auth(fetch!(b"PUT", &url).body("Hello"), "user", "pass")?;
     assert_eq!(resp.status(), 201);
 

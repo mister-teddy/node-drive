@@ -26,7 +26,14 @@ macro_rules! fetch {
 }
 
 pub fn retrieve_index_paths(content: &str) -> IndexSet<String> {
-    let value = retrieve_json(content).unwrap();
+    // Try parsing as direct JSON first (for API responses)
+    let value = if let Ok(json) = serde_json::from_str::<Value>(content) {
+        json
+    } else {
+        // Fall back to HTML template parsing
+        retrieve_json(content).unwrap()
+    };
+
     let paths = value
         .get("paths")
         .unwrap()
