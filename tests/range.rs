@@ -7,7 +7,7 @@ use rstest::rstest;
 
 #[rstest]
 fn get_file_range(server: TestServer) -> Result<(), Error> {
-    let resp = fetch!(b"GET", format!("{}index.html", server.url()))
+    let resp = fetch!(b"GET", format!("{}api/index.html", server.url()))
         .header("range", HeaderValue::from_static("bytes=0-6"))
         .send()?;
     assert_eq!(resp.status(), 206);
@@ -20,7 +20,7 @@ fn get_file_range(server: TestServer) -> Result<(), Error> {
 
 #[rstest]
 fn get_file_range_beyond(server: TestServer) -> Result<(), Error> {
-    let resp = fetch!(b"GET", format!("{}index.html", server.url()))
+    let resp = fetch!(b"GET", format!("{}api/index.html", server.url()))
         .header("range", HeaderValue::from_static("bytes=12-20"))
         .send()?;
     assert_eq!(resp.status(), 416);
@@ -32,7 +32,7 @@ fn get_file_range_beyond(server: TestServer) -> Result<(), Error> {
 
 #[rstest]
 fn get_file_range_invalid(server: TestServer) -> Result<(), Error> {
-    let resp = fetch!(b"GET", format!("{}index.html", server.url()))
+    let resp = fetch!(b"GET", format!("{}api/index.html", server.url()))
         .header("range", HeaderValue::from_static("bytes=20-"))
         .send()?;
     assert_eq!(resp.status(), 416);
@@ -61,7 +61,7 @@ fn parse_multipart_body<'a>(body: &'a str, boundary: &str) -> Vec<(HeaderMap, &'
 
 #[rstest]
 fn get_file_multipart_range(server: TestServer) -> Result<(), Error> {
-    let resp = fetch!(b"GET", format!("{}index.html", server.url()))
+    let resp = fetch!(b"GET", format!("{}api/index.html", server.url()))
         .header("range", HeaderValue::from_static("bytes=0-11, 6-17"))
         .send()?;
     assert_eq!(resp.status(), 206);
@@ -95,7 +95,7 @@ fn get_file_multipart_range(server: TestServer) -> Result<(), Error> {
 
 #[rstest]
 fn get_file_multipart_range_invalid(server: TestServer) -> Result<(), Error> {
-    let resp = fetch!(b"GET", format!("{}index.html", server.url()))
+    let resp = fetch!(b"GET", format!("{}api/index.html", server.url()))
         .header("range", HeaderValue::from_static("bytes=0-6, 20-30"))
         .send()?;
     assert_eq!(resp.status(), 416);
