@@ -110,12 +110,14 @@ pub struct InsertEventArgs<'a> {
 #[derive(Clone)]
 pub struct ProvenanceDb {
     conn: Arc<Mutex<Connection>>,
+    db_path: Arc<PathBuf>,
 }
 
 impl ProvenanceDb {
     /// Initialize database with schema
     pub fn new<P: AsRef<Path>>(path: P) -> Result<Self> {
-        let conn = Connection::open(path)?;
+        let db_path = path.as_ref().to_path_buf();
+        let conn = Connection::open(&db_path)?;
 
         // Enable foreign key constraints
         conn.execute("PRAGMA foreign_keys = ON", [])?;
@@ -200,7 +202,13 @@ impl ProvenanceDb {
 
         Ok(Self {
             conn: Arc::new(Mutex::new(conn)),
+            db_path: Arc::new(db_path),
         })
+    }
+
+    /// Get the database file path
+    pub fn get_db_path(&self) -> &Path {
+        &self.db_path
     }
 
     /// Insert or update artifact by file path

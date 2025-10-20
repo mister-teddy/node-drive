@@ -1439,7 +1439,7 @@ dependencies = [
 
 [[package]]
 name = "node-drive"
-version = "1.12.1"
+version = "1.12.2"
 dependencies = [
  "alphanumeric-sort",
  "anyhow",

@@ -48,6 +48,7 @@ pub type Request = hyper::Request<Incoming>;
 
 const INDEX_HTML: &str = include_str!("../../assets/index.html");
 pub(super) const HEALTH_CHECK_PATH: &str = "__dufs__/health";
+pub(super) const PROVENANCE_DB_PATH: &str = "__dufs__/provenance-db";
 
 pub struct Server {
     pub(super) args: Args,
@@ -848,6 +849,30 @@ impl Server {
                 .typed_insert(ContentType::from(mime_guess::mime::APPLICATION_JSON));
 
             *res.body_mut() = body_full(r#"{"status":"OK"}"#);
+            return Ok(true);
+        } else if req_path == PROVENANCE_DB_PATH {
+            // Handle provenance database download
+            let db_path = self.provenance_db.get_db_path();
+
+            if !db_path.exists() {
+                status_not_found(res);
+                return Ok(true);
+            }
+
+            // Set headers for file download
+            res.headers_mut().insert(
+                CONTENT_TYPE,
+                HeaderValue::from_static("application/vnd.sqlite3"),
+            );
+
+            let filename = db_path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("provenance.db");
+            set_content_disposition(res, false, filename)?;
+
+            // Send the database file
+            self.handle_send_file(db_path, _headers, false, res).await?;
             return Ok(true);
         }
 

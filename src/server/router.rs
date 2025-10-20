@@ -90,6 +90,9 @@ pub enum Route {
     /// Verify OTS: POST ?verify
     OtsVerify,
 
+    /// Download provenance database: GET /__dufs__/provenance-db
+    DownloadProvenanceDb,
+
     // ============================================================================
     // WebDAV Routes
     // ============================================================================
@@ -157,6 +160,10 @@ impl Route {
         // Internal routes (/__dufs__/*)
         if req_path == super::handlers::HEALTH_CHECK_PATH {
             return Route::HealthCheck;
+        }
+
+        if req_path == super::handlers::PROVENANCE_DB_PATH {
+            return Route::DownloadProvenanceDb;
         }
 
         if let Some(name) = req_path.strip_prefix(assets_prefix) {
