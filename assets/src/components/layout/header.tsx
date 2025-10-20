@@ -7,6 +7,7 @@ import {
   UserOutlined,
   LogoutOutlined,
   LoginOutlined,
+  DatabaseOutlined,
 } from "@ant-design/icons";
 import NodeLogo from "../vectors/node-logo.js";
 
@@ -100,6 +101,21 @@ export function Header({
           {/* Action Buttons */}
           {allowUpload && (
             <>
+              <Button
+                type="dashed"
+                icon={<DatabaseOutlined />}
+                onClick={() => {
+                  // Download the provenance database
+                  const link = document.createElement("a");
+                  link.href = "/__dufs__/provenance-db";
+                  link.download = "provenance.db";
+                  document.body.appendChild(link);
+                  link.click();
+                  document.body.removeChild(link);
+                }}
+              >
+                Download SQLite DB
+              </Button>
               <Button icon={<FolderAddOutlined />} onClick={onNewFolder}>
                 New Folder
               </Button>

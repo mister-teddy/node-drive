@@ -22,6 +22,7 @@ import {
 } from "@ant-design/icons";
 import { useSpring, animated } from "@react-spring/web";
 import { formatHashShort, apiPath } from "../utils";
+import OtsViewer from "./ots-viewer";
 
 const { Text } = Typography;
 
@@ -564,12 +565,16 @@ export default function Provenance({
                       <div style={{ fontSize: 11 }}>
                         {event.actors?.creator_pubkey_hex && (
                           <div>
-                            Creator: {formatHashShort(event.actors.creator_pubkey_hex)}
+                            Creator:{" "}
+                            {formatHashShort(event.actors.creator_pubkey_hex)}
                           </div>
                         )}
-                        {event.ots_proof_b64 && event.ots_proof_b64 !== "N/A" && (
-                          <div>OTS: {event.ots_proof_b64.slice(0, 20)}...</div>
-                        )}
+                        {event.ots_proof_b64 &&
+                          event.ots_proof_b64 !== "N/A" && (
+                            <div>
+                              OTS: {event.ots_proof_b64.slice(0, 20)}...
+                            </div>
+                          )}
                         {index > 0 && event.prev_event_hash_hex && (
                           <div>
                             Prev: {formatHashShort(event.prev_event_hash_hex)}
@@ -589,150 +594,11 @@ export default function Provenance({
         label: "Timestamp Proof",
         children: (
           <div onClick={(e) => e.stopPropagation()}>
-            {isLoadingOtsInfo ? (
-              <div style={{ textAlign: "center", padding: "20px" }}>
-                <Spin />
-              </div>
-            ) : otsInfo ? (
-              <div style={{ fontSize: 12 }}>
-                {/* Show verification status if available */}
-                {stampStatusObj?.success && stampStatusObj.results ? (
-                  <Alert
-                    message="✅ Verified on Bitcoin Blockchain"
-                    description={`This file's timestamp was confirmed in Bitcoin block #${stampStatusObj.results.bitcoin.height} on ${new Date(
-                      stampStatusObj.results.bitcoin.timestamp * 1000
-                    ).toLocaleString("en-US", {
-                      month: "long",
-                      day: "numeric",
-                      year: "numeric",
-                      hour: "numeric",
-                      minute: "numeric",
-                    })}. The proof below shows how your file connects to this block.`}
-                    type="success"
-                    showIcon
-                    style={{ fontSize: 11, marginBottom: 12 }}
-                  />
-                ) : (
-                  <Alert
-                    message="⏳ Pending Bitcoin Confirmation"
-                    description="Your file has been submitted for timestamping. The proof will be complete once it's included in a Bitcoin block (usually within a few hours)."
-                    type="warning"
-                    showIcon
-                    style={{ fontSize: 11, marginBottom: 12 }}
-                  />
-                )}
-
-                <div style={{ marginBottom: 16 }}>
-                  <Text strong style={{ fontSize: 12 }}>Starting Point:</Text>
-                  <br />
-                  <Text type="secondary" style={{ fontSize: 11 }}>
-                    Your file's unique fingerprint
-                  </Text>
-                  <br />
-                  <Text
-                    code
-                    style={{
-                      fontSize: 10,
-                      wordBreak: "break-all",
-                      display: "block",
-                      marginTop: 4
-                    }}
-                  >
-                    {otsInfo.file_hash}
-                  </Text>
-                </div>
-
-                <div>
-                  <Text strong style={{ fontSize: 12 }}>Proof Steps:</Text>
-                  <br />
-                  <Text type="secondary" style={{ fontSize: 11 }}>
-                    How we get from your file to the blockchain
-                  </Text>
-                  <div
-                    style={{
-                      fontFamily: "monospace",
-                      fontSize: 11,
-                      lineHeight: "1.6",
-                      whiteSpace: "pre-wrap",
-                      backgroundColor: "#f5f5f5",
-                      padding: "12px",
-                      borderRadius: "4px",
-                      marginTop: "8px",
-                      maxHeight: "300px",
-                      overflow: "auto",
-                      border: "1px solid #e8e8e8"
-                    }}
-                  >
-                    {otsInfo.operations.map((op, idx) => {
-                      // Make operations more readable
-                      let displayOp = op;
-
-                      // Simplify technical operations
-                      if (op.includes("→ sha256") && !op.includes("append") && !op.includes("prepend")) {
-                        displayOp = op.replace("→ sha256", "🔐 Hash with SHA-256");
-                      } else if (op.includes("→ append")) {
-                        displayOp = op.replace("→ append", "➕ Combine with");
-                      } else if (op.includes("→ prepend")) {
-                        displayOp = op.replace("→ prepend", "➕ Combine with");
-                      } else if (op.includes("✓ Bitcoin block attestation")) {
-                        displayOp = op.replace("✓", "✅");
-                        displayOp = displayOp.replace("attestation", "");
-                      } else if (op.includes("⏳ Pending attestation")) {
-                        displayOp = op.replace("attestation:", "confirmation:");
-                      }
-
-                      // Style Bitcoin confirmations differently
-                      const isBitcoinConfirmation = displayOp.includes("✅ Bitcoin");
-                      const isPendingOp = displayOp.includes("⏳");
-
-                      return (
-                        <div
-                          key={idx}
-                          style={{
-                            color: isBitcoinConfirmation ? "#52c41a" : isPendingOp ? "#fa8c16" : "inherit",
-                            fontWeight: isBitcoinConfirmation ? 600 : "normal",
-                          }}
-                        >
-                          {displayOp}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {stampStatusObj?.success && stampStatusObj.results ? (
-                  <Alert
-                    message="What does this mean?"
-                    description={`This proof is permanent and cryptographically verifiable. Anyone can confirm that this exact file existed on ${new Date(
-                      stampStatusObj.results.bitcoin.timestamp * 1000
-                    ).toLocaleDateString("en-US", {
-                      month: "long",
-                      day: "numeric",
-                      year: "numeric",
-                    })} by checking Bitcoin block #${stampStatusObj.results.bitcoin.height}.`}
-                    type="info"
-                    showIcon
-                    style={{ fontSize: 11, marginTop: 12 }}
-                  />
-                ) : (
-                  <Alert
-                    message="What happens next?"
-                    description="Once your timestamp is included in a Bitcoin block, you'll see a green checkmark above. The pending calendar servers shown above are collecting timestamps to batch them into the blockchain."
-                    type="info"
-                    showIcon
-                    style={{ fontSize: 11, marginTop: 12 }}
-                  />
-                )}
-              </div>
-            ) : (
-              <Alert
-                message="Timestamp proof not available"
-                description="No timestamp proof found for this file."
-                type="info"
-                showIcon
-                style={{ fontSize: 11 }}
-              />
-            )}
+            <OtsViewer
+              otsInfo={otsInfo}
+              stampStatus={stampStatus}
+              isLoading={isLoadingOtsInfo}
+            />
           </div>
         ),
       },

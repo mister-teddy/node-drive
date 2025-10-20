@@ -48,6 +48,7 @@ pub type Request = hyper::Request<Incoming>;
 
 const INDEX_HTML: &str = include_str!("../../assets/index.html");
 pub(super) const HEALTH_CHECK_PATH: &str = "__dufs__/health";
+pub(super) const PROVENANCE_DB_PATH: &str = "__dufs__/provenance-db";
 
 pub struct Server {
     pub(super) args: Args,
@@ -193,12 +194,16 @@ impl Server {
         // For API requests, strip only the /api part (not the path prefix)
         // E.g., /dufs/api/index.html becomes /dufs/index.html
         // This allows resolve_path to strip the path prefix correctly
-        let req_path = if uri_path == api_prefix_str || uri_path == api_prefix_str.trim_end_matches('/') {
-            self.args.uri_prefix.as_str()
-        } else {
-            // Replace "api/" or "api" with empty string, keeping the prefix
-            &uri_path.replace(&format!("{}api/", self.args.uri_prefix), self.args.uri_prefix.as_str())
-        };
+        let req_path =
+            if uri_path == api_prefix_str || uri_path == api_prefix_str.trim_end_matches('/') {
+                self.args.uri_prefix.as_str()
+            } else {
+                // Replace "api/" or "api" with empty string, keeping the prefix
+                &uri_path.replace(
+                    &format!("{}api/", self.args.uri_prefix),
+                    self.args.uri_prefix.as_str(),
+                )
+            };
 
         let relative_path = match self.resolve_path(req_path) {
             Some(v) => v,
@@ -232,7 +237,7 @@ impl Server {
         let authorization = headers.get(AUTHORIZATION);
 
         let query = req.uri().query().unwrap_or_default();
-        let mut query_params: HashMap<String, String> = form_urlencoded::parse(query.as_bytes())
+        let query_params: HashMap<String, String> = form_urlencoded::parse(query.as_bytes())
             .map(|(k, v)| (k.to_string(), v.to_string()))
             .collect();
 
@@ -534,7 +539,8 @@ impl Server {
                             Some(dest) => dest,
                             None => return Ok(res),
                         };
-                        webdav::handle_move(path, &dest, &mut res, Some(&self.provenance_db)).await?
+                        webdav::handle_move(path, &dest, &mut res, Some(&self.provenance_db))
+                            .await?
                     }
                 }
                 "LOCK" => {
@@ -643,61 +649,6 @@ impl Server {
         Ok(())
     }
 
-    /// Serves static SPA index.html for directory requests
-    pub async fn handle_spa_index(
-        &self,
-        headers: &HeaderMap<HeaderValue>,
-        head_only: bool,
-        res: &mut Response,
-    ) -> Result<()> {
-        let asset_file = "assets/dist/index.html";
-
-        #[cfg(debug_assertions)]
-        let index_path = {
-            use std::path::PathBuf;
-            PathBuf::from(asset_file)
-        };
-
-        #[cfg(not(debug_assertions))]
-        let index_path = {
-            use std::path::PathBuf;
-            std::env::current_exe()
-                .ok()
-                .and_then(|exe| exe.parent().map(|p| p.join(asset_file)))
-                .unwrap_or_else(|| PathBuf::from(asset_file))
-        };
-
-        if index_path.exists() {
-            // Read the index file and replace the assets prefix placeholder so
-            // the server can inject the real runtime prefix (uri_prefix + assets_prefix).
-            let mut buf = String::new();
-            if !head_only {
-                buf = tokio::fs::read_to_string(&index_path)
-                    .await
-                    .unwrap_or_default();
-                buf = buf.replace(
-                    "__ASSETS_PREFIX__",
-                    &format!("{}{}", self.args.uri_prefix, self.assets_prefix),
-                );
-            }
-
-            // Set headers and body similar to handle_edit_file
-            res.headers_mut()
-                .typed_insert(ContentType::from(mime_guess::mime::TEXT_HTML_UTF_8));
-            res.headers_mut()
-                .typed_insert(ContentLength(buf.len() as u64));
-            res.headers_mut()
-                .typed_insert(CacheControl::new().with_no_cache());
-            if head_only {
-                return Ok(());
-            }
-            *res.body_mut() = body_full(buf);
-        } else {
-            status_not_found(res);
-        }
-        Ok(())
-    }
-
     pub async fn handle_zip_dir(
         &self,
         path: &Path,
@@ -762,9 +713,6 @@ impl Server {
         {
             self.handle_send_file(&index_path, headers, head_only, res)
                 .await?;
-        } else if self.args.render_try_index {
-            // Fallback to SPA index.html for directory browsing
-            self.handle_spa_index(headers, head_only, res).await?;
         } else {
             status_not_found(res)
         }
@@ -848,6 +796,30 @@ impl Server {
                 .typed_insert(ContentType::from(mime_guess::mime::APPLICATION_JSON));
 
             *res.body_mut() = body_full(r#"{"status":"OK"}"#);
+            return Ok(true);
+        } else if req_path == PROVENANCE_DB_PATH {
+            // Handle provenance database download
+            let db_path = self.provenance_db.get_db_path();
+
+            if !db_path.exists() {
+                status_not_found(res);
+                return Ok(true);
+            }
+
+            // Set headers for file download
+            res.headers_mut().insert(
+                CONTENT_TYPE,
+                HeaderValue::from_static("application/vnd.sqlite3"),
+            );
+
+            let filename = db_path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("provenance.db");
+            set_content_disposition(res, false, filename)?;
+
+            // Send the database file
+            self.handle_send_file(db_path, _headers, false, res).await?;
             return Ok(true);
         }
 
