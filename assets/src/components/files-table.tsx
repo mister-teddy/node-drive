@@ -437,7 +437,7 @@ export default function FilesTable({ loading }: FilesTableProps) {
               <Button
                 type="text"
                 icon={<DownloadOutlined />}
-                href={path + (isDir && allowArchive ? "?zip" : "")}
+                href={path + (isDir && allowArchive ? "?zip" : "?download")}
                 download
                 size="small"
               />

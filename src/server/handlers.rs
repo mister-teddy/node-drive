@@ -176,6 +176,10 @@ impl Server {
             || query.contains("view")
             || query.contains("hash")
             || query.contains("zip")
+            || query.contains("ots")
+            || query.contains("manifest=")
+            || query.contains("verify")
+            || query.contains("download")
             || (has_search && has_simple); // search with simple returns plain text
 
         // If the request is not for the API and doesn't have special query params,
