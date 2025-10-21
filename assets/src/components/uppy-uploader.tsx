@@ -1,12 +1,18 @@
 import { useState, useEffect, useRef } from "react";
-import { observer } from "mobx-react-lite";
+import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import Uppy from "@uppy/core";
 import { Dashboard } from "@uppy/react";
 import DropTarget from "@uppy/drop-target";
 import XHRUpload from "@uppy/xhr-upload";
 import "@uppy/core/css/style.min.css";
 import "@uppy/dashboard/css/style.min.css";
-import { uppyStore } from "../store/uppyStore";
+import {
+  isDraggingOverAtom,
+  hasFilesAtom,
+  filePickerTriggerAtom,
+  showDashboardAtom,
+  setIsDraggingOverWithDelay,
+} from "../store/uppyStore";
 import { apiPath } from "../utils";
 
 interface UppyUploaderProps {
@@ -15,8 +21,13 @@ interface UppyUploaderProps {
   onUploadComplete: () => void;
 }
 
-const UppyUploader = observer(({ auth, onAuthRequired, onUploadComplete }: UppyUploaderProps) => {
+const UppyUploader = ({ auth, onAuthRequired, onUploadComplete }: UppyUploaderProps) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const [isDraggingOver, setIsDraggingOver] = useAtom(isDraggingOverAtom);
+  const setHasFiles = useSetAtom(hasFilesAtom);
+  const setFilePickerTrigger = useSetAtom(filePickerTriggerAtom);
+  const showDashboard = useAtomValue(showDashboardAtom);
 
   const [uppy] = useState(() => {
     const uppyInstance = new Uppy({
@@ -56,13 +67,13 @@ const UppyUploader = observer(({ auth, onAuthRequired, onUploadComplete }: UppyU
       .use(DropTarget, {
         target: document.body,
         onDragOver: () => {
-          uppyStore.setIsDraggingOver(true);
+          setIsDraggingOverWithDelay(setIsDraggingOver, true);
         },
         onDragLeave: () => {
-          uppyStore.setIsDraggingOver(false);
+          setIsDraggingOverWithDelay(setIsDraggingOver, false);
         },
         onDrop: () => {
-          uppyStore.setIsDraggingOver(false);
+          setIsDraggingOverWithDelay(setIsDraggingOver, false);
         },
       });
 
@@ -84,37 +95,46 @@ const UppyUploader = observer(({ auth, onAuthRequired, onUploadComplete }: UppyU
       }
     });
 
-    // Track when files are added or removed
-    uppyInstance.on("file-added", () => {
-      uppyStore.setHasFiles(uppyInstance.getFiles().length > 0);
+    return uppyInstance;
+  });
+
+  // Track when files are added or removed
+  useEffect(() => {
+    const handleFileAdded = () => {
+      setHasFiles(uppy.getFiles().length > 0);
       if (auth) {
         onAuthRequired().catch((err) => {
           console.error("Authentication required:", err);
         });
       }
-    });
+    };
 
-    uppyInstance.on("file-removed", () => {
-      uppyStore.setHasFiles(uppyInstance.getFiles().length > 0);
-    });
+    const handleFileRemoved = () => {
+      setHasFiles(uppy.getFiles().length > 0);
+    };
 
-    uppyInstance.on("cancel-all", () => {
-      uppyStore.setHasFiles(false);
-    });
+    const handleCancelAll = () => {
+      setHasFiles(false);
+    };
 
-    return uppyInstance;
-  });
+    uppy.on("file-added", handleFileAdded);
+    uppy.on("file-removed", handleFileRemoved);
+    uppy.on("cancel-all", handleCancelAll);
+
+    return () => {
+      uppy.off("file-added", handleFileAdded);
+      uppy.off("file-removed", handleFileRemoved);
+      uppy.off("cancel-all", handleCancelAll);
+      uppy.cancelAll();
+    };
+  }, [uppy, auth, onAuthRequired, setHasFiles]);
 
   useEffect(() => {
     // Register the file picker trigger function with the store
-    uppyStore.setFilePickerTrigger(() => {
+    setFilePickerTrigger(() => {
       fileInputRef.current?.click();
     });
-
-    return () => {
-      uppy.cancelAll();
-    };
-  }, [uppy]);
+  }, [setFilePickerTrigger]);
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files;
@@ -143,7 +163,7 @@ const UppyUploader = observer(({ auth, onAuthRequired, onUploadComplete }: UppyU
       />
 
       {/* Full-screen drag overlay */}
-      {uppyStore.isDraggingOver ? (
+      {isDraggingOver ? (
         <div
           style={{
             position: "fixed",
@@ -165,7 +185,7 @@ const UppyUploader = observer(({ auth, onAuthRequired, onUploadComplete }: UppyU
           <h2>Drop files here to upload</h2>
         </div>
       ) : (
-        uppyStore.showDashboard && (
+        showDashboard && (
           <div
             style={{
               position: "fixed",
@@ -191,6 +211,6 @@ const UppyUploader = observer(({ auth, onAuthRequired, onUploadComplete }: UppyU
       )}
     </>
   );
-});
+}
 
 export default UppyUploader;

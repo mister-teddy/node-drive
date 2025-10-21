@@ -1,44 +1,28 @@
-import { makeAutoObservable } from 'mobx';
+import { atom } from 'jotai';
 
-class UppyStore {
-  isDraggingOver = false;
-  hasFiles = false;
-  filePickerTrigger: (() => void) | null = null;
-  private dragTimeout: number | null = null;
+// Atoms for Uppy UI state
+export const isDraggingOverAtom = atom(false);
+export const hasFilesAtom = atom(false);
+export const filePickerTriggerAtom = atom<(() => void) | null>(null);
 
-  constructor() {
-    makeAutoObservable(this);
+// Derived atom for showing dashboard
+export const showDashboardAtom = atom((get) => {
+  const hasFiles = get(hasFilesAtom);
+  const isDraggingOver = get(isDraggingOverAtom);
+  return hasFiles && !isDraggingOver;
+});
+
+// Helper to manage drag timeout
+let dragTimeout: number | null = null;
+
+export const setIsDraggingOverWithDelay = (setValue: (value: boolean) => void, value: boolean) => {
+  if (dragTimeout) clearTimeout(dragTimeout);
+
+  if (value) {
+    setValue(true);
+  } else {
+    dragTimeout = setTimeout(() => {
+      setValue(false);
+    }, 50);
   }
-
-  setFilePickerTrigger(trigger: () => void) {
-    this.filePickerTrigger = trigger;
-  }
-
-  setIsDraggingOver(value: boolean) {
-    if (this.dragTimeout) clearTimeout(this.dragTimeout);
-
-    if (value) {
-      this.isDraggingOver = true;
-    } else {
-      this.dragTimeout = setTimeout(() => {
-        this.isDraggingOver = false;
-      }, 50);
-    }
-  }
-
-  setHasFiles(value: boolean) {
-    this.hasFiles = value;
-  }
-
-  openFilePicker() {
-    if (this.filePickerTrigger) {
-      this.filePickerTrigger();
-    }
-  }
-
-  get showDashboard() {
-    return this.hasFiles && !this.isDraggingOver;
-  }
-}
-
-export const uppyStore = new UppyStore();
+};

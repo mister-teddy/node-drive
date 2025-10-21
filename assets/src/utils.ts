@@ -1,22 +1,3 @@
-import { useState, useEffect } from 'react';
-import { autorun, observable } from 'mobx';
-
-/**
- * An object for storing application data.
- */
-interface StoreData {
-  uploadQueue: Array<any>; // Will be typed when we convert node-drive.js
-}
-
-const storeData: StoreData = {
-  uploadQueue: [],
-};
-
-/**
- * An observable store initialized with the provided store data.
- */
-export const store = observable(storeData);
-
 /**
  * Memory-efficient SHA256 calculation using FileReader for better handling of large files
  */
@@ -310,22 +291,6 @@ export async function copyToClipboard(text: string): Promise<boolean> {
   }
 }
 
-/**
- * React hook for subscribing to observable store changes using a selector function.
- */
-export function useStore<T>(selector: (store: StoreData) => T): T {
-  const [data, setData] = useState(selector(store));
-
-  useEffect(
-    () =>
-      autorun(() => {
-        setData(selector(store));
-      }),
-    []
-  );
-
-  return data;
-}
 
 /**
  * Convert a string to an array of byte values

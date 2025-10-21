@@ -1,19 +1,21 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import tailwindcss from '@tailwindcss/vite'
 import { resolve, dirname } from 'path'
 import { fileURLToPath } from 'url'
 
 // https://vite.dev/config/
 export default defineConfig({
-  base: '.',
-  plugins: [react()],
+  base: './',
+  plugins: [react(), tailwindcss()],
   build: {
-    outDir: './dist', // Output to the dist/ directory
-    emptyOutDir: true, // Clean the dist directory before building
-    sourcemap: true, // Enable source maps for debugging
+    outDir: './dist',
+    emptyOutDir: true,
+    sourcemap: false, // Disable source maps in production for smaller bundle
+    minify: 'esbuild', // Use esbuild for faster minification (Vite default)
+    target: 'es2015', // Target modern browsers for smaller bundle
     rollupOptions: {
       input: {
-        // Resolve path in an ESM-compatible way
         main: resolve(dirname(fileURLToPath(import.meta.url)), 'index.html'),
       },
       output: {
@@ -25,7 +27,35 @@ export default defineConfig({
           }
           return 'assets/[name]-[hash][extname]';
         },
+        // Manually chunk vendor libraries for better caching
+        manualChunks: (id) => {
+          if (id.includes('node_modules')) {
+            // Split large libraries into separate chunks
+            if (id.includes('@ant-design/icons')) {
+              return 'antd-icons';
+            }
+            if (id.includes('antd')) {
+              return 'antd';
+            }
+            if (id.includes('@uppy')) {
+              return 'uppy';
+            }
+            if (id.includes('react-router-dom')) {
+              return 'react-router';
+            }
+            if (id.includes('react') || id.includes('react-dom')) {
+              return 'react';
+            }
+            if (id.includes('jotai')) {
+              return 'jotai';
+            }
+            // All other vendor code
+            return 'vendor';
+          }
+        },
       },
     },
+    // Increase chunk size warning limit (we're chunking it properly now)
+    chunkSizeWarningLimit: 600,
   },
 })

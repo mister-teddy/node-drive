@@ -23,11 +23,14 @@ use args::BindAddr;
 use clap_complete::Shell;
 use futures_util::future::join_all;
 
-use hyper::{body::Incoming, service::service_fn, Request};
+use hyper::{body::Incoming, Request};
 use hyper_util::{
     rt::{TokioExecutor, TokioIo},
     server::conn::auto::Builder,
+    service::TowerToHyperService,
 };
+use tower::ServiceBuilder;
+use tower_http::compression::CompressionLayer;
 use std::net::{IpAddr, SocketAddr, TcpListener as StdTcpListener};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -180,8 +183,19 @@ async fn handle_stream<T>(handle: Arc<Server>, stream: TokioIo<T>, addr: Option<
 where
     T: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
 {
-    let hyper_service =
-        service_fn(move |request: Request<Incoming>| handle.clone().call(request, addr));
+    // Create service with compression support
+    let svc = tower::service_fn(move |req: Request<Incoming>| {
+        let handle = handle.clone();
+        async move { handle.call(req, addr).await }
+    });
+
+    // Wrap with compression middleware (gzip and brotli)
+    let compressed_svc = ServiceBuilder::new()
+        .layer(CompressionLayer::new())
+        .service(svc);
+
+    // Convert tower service to hyper service
+    let hyper_service = TowerToHyperService::new(compressed_svc);
 
     match Builder::new(TokioExecutor::new())
         .serve_connection_with_upgrades(stream, hyper_service)

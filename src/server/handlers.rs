@@ -763,6 +763,14 @@ impl Server {
 
             if path.exists() && path.is_file() {
                 self.handle_send_file(&path, _headers, false, res).await?;
+
+                // Add aggressive caching for versioned assets (1 year, immutable)
+                // These assets have content hashes in filenames, so they're safe to cache forever
+                res.headers_mut().insert(
+                    hyper::header::CACHE_CONTROL,
+                    HeaderValue::from_static("public, max-age=31536000, immutable"),
+                );
+
                 return Ok(true);
             } else {
                 let asset_file = "assets/dist/index.html";
@@ -782,6 +790,13 @@ impl Server {
                 if root_index.exists() && root_index.is_file() {
                     self.handle_send_file(&root_index, _headers, false, res)
                         .await?;
+
+                    // No caching for index.html - always revalidate to get latest version
+                    res.headers_mut().insert(
+                        hyper::header::CACHE_CONTROL,
+                        HeaderValue::from_static("no-cache, must-revalidate"),
+                    );
+
                     return Ok(true);
                 } else {
                     status_not_found(res);

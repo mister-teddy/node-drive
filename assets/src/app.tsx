@@ -1,12 +1,12 @@
 import { Suspense, useEffect, useTransition } from "react";
-import { Flex, Layout, Typography, Spin } from "antd";
+import { Flex, Layout, Typography, Spin, Modal, Input } from "antd";
 import { useLocation, useNavigate } from "react-router-dom";
-import { useAtom, useSetAtom } from "jotai";
+import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import FilesTable from "./components/files-table";
 import { Header } from "./components/layout/header";
 import { Breadcrumb } from "./components/layout/breadcrumb";
 import UppyUploader from "./components/uppy-uploader";
-import { uppyStore } from "./store/uppyStore";
+import { filePickerTriggerAtom } from "./store/uppyStore";
 import { apiPath } from "./utils";
 import { currentLocationAtom, dataAtom } from "./state";
 
@@ -22,6 +22,7 @@ function AppContent() {
   const navigate = useNavigate();
   const setLocation = useSetAtom(currentLocationAtom);
   const [isPending, startTransition] = useTransition();
+  const filePickerTrigger = useAtomValue(filePickerTriggerAtom);
 
   // Sync location changes to Jotai state
   useEffect(() => {
@@ -71,7 +72,10 @@ function AppContent() {
         : location.pathname + "/" + name;
       navigate(folderPath);
     } catch (err) {
-      alert(`Cannot create folder \`${name}\`, ${(err as Error).message}`);
+      Modal.error({
+        title: "Create folder failed",
+        content: `Cannot create folder "${name}": ${(err as Error).message}`,
+      });
     }
   };
 
@@ -94,11 +98,35 @@ function AppContent() {
         }}
         onLogout={logout}
         onNewFolder={() => {
-          const name = prompt("Enter folder name");
-          if (name) createFolder(name);
+          let folderName = "";
+          Modal.confirm({
+            title: "Create new folder",
+            content: (
+              <Input
+                placeholder="Enter folder name"
+                onChange={(e) => {
+                  folderName = e.target.value;
+                }}
+                onPressEnter={() => {
+                  Modal.destroyAll();
+                  if (folderName.trim()) createFolder(folderName.trim());
+                }}
+                autoFocus
+              />
+            ),
+            okText: "Create",
+            cancelText: "Cancel",
+            onOk: () => {
+              if (folderName.trim()) {
+                createFolder(folderName.trim());
+              }
+            },
+          });
         }}
         onNewFile={() => {
-          uppyStore.openFilePicker();
+          if (filePickerTrigger) {
+            filePickerTrigger();
+          }
         }}
       />
 

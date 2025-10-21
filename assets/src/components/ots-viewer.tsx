@@ -72,28 +72,26 @@ export default function OtsViewer({
       {isVerified ? (
         <Alert
           message="Verified on Bitcoin Blockchain"
-          description={`This file's timestamp was confirmed in Bitcoin block #${
-            stampStatusObj?.results?.bitcoin.height
-          } on ${new Date(
+          description={`This proof is permanent and cryptographically verifiable. Anyone can confirm that this exact file existed on ${new Date(
             (stampStatusObj?.results?.bitcoin.timestamp || 0) * 1000
-          ).toLocaleString("en-US", {
+          ).toLocaleDateString("en-US", {
             month: "long",
             day: "numeric",
             year: "numeric",
-            hour: "numeric",
-            minute: "numeric",
-          })}. The proof below shows how your file connects to this block.`}
+          })} by checking Bitcoin block #${
+            stampStatusObj?.results?.bitcoin.height
+          }.`}
           type="success"
           showIcon
-          style={{ fontSize: 11, marginBottom: 16 }}
+          style={{ fontSize: 12, marginBottom: 16 }}
         />
       ) : (
         <Alert
           message="⏳ Pending Bitcoin Confirmation"
-          description="Your file has been submitted for timestamping. The proof will be complete once it's included in a Bitcoin block (usually within a few hours)."
+          description="Your file has been submitted for timestamping. The proof will be complete once it's included in a Bitcoin block (usually within a few hours). Once your timestamp is included in a Bitcoin block, you'll see a green checkmark above. The pending calendar servers shown above are collecting timestamps to batch them into the blockchain."
           type="warning"
           showIcon
-          style={{ fontSize: 11, marginBottom: 16 }}
+          style={{ fontSize: 12, marginBottom: 16 }}
         />
       )}
 
@@ -112,33 +110,6 @@ export default function OtsViewer({
             Progress: {calculateCompletionPercentage(otsInfo.operations)}%
           </Text>
         </div>
-      )}
-
-      {/* Explanation */}
-      {isVerified ? (
-        <Alert
-          message="What does this mean?"
-          description={`This proof is permanent and cryptographically verifiable. Anyone can confirm that this exact file existed on ${new Date(
-            (stampStatusObj?.results?.bitcoin.timestamp || 0) * 1000
-          ).toLocaleDateString("en-US", {
-            month: "long",
-            day: "numeric",
-            year: "numeric",
-          })} by checking Bitcoin block #${
-            stampStatusObj?.results?.bitcoin.height
-          }.`}
-          type="info"
-          showIcon
-          style={{ fontSize: 11, marginTop: 16 }}
-        />
-      ) : (
-        <Alert
-          message="What happens next?"
-          description="Once your timestamp is included in a Bitcoin block, you'll see a green checkmark above. The pending calendar servers shown above are collecting timestamps to batch them into the blockchain."
-          type="info"
-          showIcon
-          style={{ fontSize: 11, marginTop: 16 }}
-        />
       )}
     </div>
   );
@@ -208,27 +179,12 @@ function parseOperationsToSteps(
   const isVerified = stampStatus?.success && stampStatus.results;
 
   // Step 1: File Hash
-  const fileHash = operations[0] || "";
   steps.push({
     title: "Your File",
     description: (
-      <div>
-        <Text type="secondary" style={{ fontSize: 11 }}>
-          Starting with file's unique fingerprint (SHA-256)
-        </Text>
-        <br />
-        <Text
-          code
-          style={{
-            fontSize: 10,
-            wordBreak: "break-all",
-            display: "block",
-            marginTop: 4,
-          }}
-        >
-          {fileHash}
-        </Text>
-      </div>
+      <Text type="secondary" style={{ fontSize: 11 }}>
+        Starting with file's unique fingerprint (SHA-256)
+      </Text>
     ),
     status: "finish",
     icon: <FileTextOutlined />,

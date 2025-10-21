@@ -6,12 +6,12 @@ import {
   Spin,
   Space,
   Typography,
-  Alert,
   Tooltip,
   Descriptions,
   Tabs,
-  List,
   type DescriptionsProps,
+  Steps,
+  Badge,
 } from "antd";
 import {
   ClockCircleOutlined,
@@ -24,7 +24,7 @@ import { useSpring, animated } from "@react-spring/web";
 import { formatHashShort, apiPath } from "../utils";
 import OtsViewer from "./ots-viewer";
 
-const { Text } = Typography;
+const { Text, Paragraph } = Typography;
 
 interface StampStatus {
   success: boolean;
@@ -336,6 +336,7 @@ export default function Provenance({
           cursor: "pointer",
           backgroundColor: badgeColor,
           border: `1px solid ${borderColor}`,
+          borderRadius: 8,
         }}
         onClick={() => setIsFlipped(true)}
       >
@@ -358,22 +359,7 @@ export default function Provenance({
           </Tag>
         </div>
 
-        <Descriptions
-          size="small"
-          column={1}
-          items={items}
-          labelStyle={{ fontWeight: 600 }}
-          contentStyle={{ textAlign: "right" }}
-        />
-
-        {stampStatusObj?.success && stampStatusObj.results && (
-          <Alert
-            message="File existed since this date. Doesn't prove who created it."
-            type="info"
-            showIcon={false}
-            style={{ marginTop: 12, fontSize: 11 }}
-          />
-        )}
+        <Descriptions bordered column={1} items={items} />
 
         <div style={{ textAlign: "center", marginTop: 12 }}>
           <Text type="secondary" style={{ fontSize: 11 }}>
@@ -416,7 +402,6 @@ export default function Provenance({
                 toggleHashExpansion("main-hash");
               }}
               style={{
-                fontSize: 11,
                 cursor: "pointer",
                 wordBreak: "break-all",
               }}
@@ -451,7 +436,6 @@ export default function Provenance({
                       toggleHashExpansion("pubkey");
                     }}
                     style={{
-                      fontSize: 11,
                       cursor: "pointer",
                       wordBreak: "break-all",
                     }}
@@ -530,13 +514,7 @@ export default function Provenance({
         label: "Details",
         children: (
           <div onClick={(e) => e.stopPropagation()}>
-            <Descriptions
-              size="small"
-              column={1}
-              items={cryptoItems}
-              labelStyle={{ fontWeight: 600, fontSize: 12 }}
-              contentStyle={{ fontSize: 12 }}
-            />
+            <Descriptions bordered column={1} items={cryptoItems} />
           </div>
         ),
       },
@@ -545,47 +523,81 @@ export default function Provenance({
         label: `Events (${events.length})`,
         children: (
           <div onClick={(e) => e.stopPropagation()}>
-            <List
-              size="small"
-              dataSource={events}
-              renderItem={(event, index) => (
-                <List.Item>
-                  <List.Item.Meta
-                    title={
-                      <Space>
-                        <Text strong style={{ fontSize: 12 }}>
-                          {event.action}
-                        </Text>
-                        <Text type="secondary" style={{ fontSize: 11 }}>
-                          {new Date(event.issued_at).toLocaleString()}
-                        </Text>
-                      </Space>
-                    }
-                    description={
-                      <div style={{ fontSize: 11 }}>
-                        {event.actors?.creator_pubkey_hex && (
-                          <div>
-                            Creator:{" "}
-                            {formatHashShort(event.actors.creator_pubkey_hex)}
-                          </div>
-                        )}
-                        {event.ots_proof_b64 &&
-                          event.ots_proof_b64 !== "N/A" && (
-                            <div>
-                              OTS: {event.ots_proof_b64.slice(0, 20)}...
-                            </div>
-                          )}
-                        {index > 0 && event.prev_event_hash_hex && (
-                          <div>
-                            Prev: {formatHashShort(event.prev_event_hash_hex)}
-                          </div>
-                        )}
-                      </div>
-                    }
-                  />
-                </List.Item>
-              )}
-            />
+            <Steps
+              className="[&_.ant-steps-item]:w-full"
+              items={events.map((event, index) => ({
+                key: `event-${index}`,
+                title: new Date(event.issued_at).toLocaleString(),
+                description: (
+                  <Badge.Ribbon
+                    text={event.action}
+                    color="blue"
+                    rootClassName="w-[604px]"
+                  >
+                    {event.actors && (
+                      <Descriptions
+                        bordered
+                        column={1}
+                        size="small"
+                        items={[
+                          {
+                            key: `actors-${index}`,
+                            label: <Text strong>Actors</Text>,
+                            children: (
+                              <>
+                                {event.actors?.creator_pubkey_hex && (
+                                  <div
+                                    style={{
+                                      display: "flex",
+                                      alignItems: "center",
+                                      gap: 8,
+                                    }}
+                                  >
+                                    <Text
+                                      code
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        toggleHashExpansion(
+                                          `actor-creator-${index}`
+                                        );
+                                      }}
+                                      style={{
+                                        cursor: "pointer",
+                                        wordBreak: "break-all",
+                                      }}
+                                    >
+                                      Creator PubKey:{" "}
+                                      {formatHashFriendly(
+                                        event.actors.creator_pubkey_hex,
+                                        expandedHashes[`actor-creator-${index}`]
+                                      )}
+                                    </Text>
+                                    <Tooltip title="Copy">
+                                      <Button
+                                        type="text"
+                                        size="small"
+                                        icon={<CopyOutlined />}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          navigator.clipboard.writeText(
+                                            event.actors?.creator_pubkey_hex ??
+                                              ""
+                                          );
+                                        }}
+                                      />
+                                    </Tooltip>
+                                  </div>
+                                )}
+                              </>
+                            ),
+                          },
+                        ]}
+                      />
+                    )}
+                  </Badge.Ribbon>
+                ),
+              }))}
+            ></Steps>
           </div>
         ),
       },
@@ -607,34 +619,9 @@ export default function Provenance({
         label: "JSON",
         children: (
           <div onClick={(e) => e.stopPropagation()}>
-            <Space direction="vertical" style={{ width: "100%" }}>
-              <Button
-                type="link"
-                href={`${window.location.pathname}${fileName}?manifest=json`}
-                target="_blank"
-                rel="noopener noreferrer"
-                size="small"
-                style={{ padding: 0 }}
-                onClick={(e) => e.stopPropagation()}
-              >
-                Open in New Tab
-              </Button>
-              <Typography.Text
-                code
-                style={{
-                  fontSize: 10,
-                  display: "block",
-                  whiteSpace: "pre-wrap",
-                  wordBreak: "break-all",
-                  maxHeight: "300px",
-                  overflow: "auto",
-                  padding: "8px",
-                  backgroundColor: "#f5f5f5",
-                }}
-              >
-                {manifestJson}
-              </Typography.Text>
-            </Space>
+            <Paragraph>
+              <pre>{manifestJson}</pre>
+            </Paragraph>
           </div>
         ),
       },
@@ -643,7 +630,6 @@ export default function Provenance({
     return (
       <div
         style={{
-          padding: "16px",
           cursor: "pointer",
         }}
         onClick={() => setIsFlipped(false)}

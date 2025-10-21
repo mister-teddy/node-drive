@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Table, Button, Space, Empty, Tooltip } from "antd";
+import { Table, Button, Space, Empty, Tooltip, Modal, Input } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import {
   FolderOutlined,
@@ -117,24 +117,34 @@ export default function FilesTable({ loading }: FilesTableProps) {
   };
 
   const handleDelete = async (file: PathItem) => {
-    if (!confirm(`Delete "${file.name}"?`)) return;
+    Modal.confirm({
+      title: "Delete file",
+      content: `Are you sure you want to delete "${file.name}"?`,
+      okText: "Delete",
+      okType: "danger",
+      cancelText: "Cancel",
+      onOk: async () => {
+        try {
+          const url = apiPath(file.name);
+          const res = await fetch(url, {
+            method: "DELETE",
+          });
 
-    try {
-      const url = apiPath(file.name);
-      const res = await fetch(url, {
-        method: "DELETE",
-      });
+          if (!res.ok) {
+            throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+          }
 
-      if (!res.ok) {
-        throw new Error(`HTTP ${res.status}: ${res.statusText}`);
-      }
-
-      // Refresh data from server to update the file list
-      refreshData();
-    } catch (err) {
-      const error = err as Error;
-      alert(`Cannot delete "${file.name}": ${error.message}`);
-    }
+          // Refresh data from server to update the file list
+          refreshData();
+        } catch (err) {
+          const error = err as Error;
+          Modal.error({
+            title: "Delete failed",
+            content: `Cannot delete "${file.name}": ${error.message}`,
+          });
+        }
+      },
+    });
   };
 
   const handleMove = async (file: PathItem, newPath?: string | null) => {
@@ -143,65 +153,120 @@ export default function FilesTable({ loading }: FilesTableProps) {
       (location.pathname.endsWith("/") ? "" : "/") +
       file.name;
 
-    if (!newPath) {
-      newPath = prompt("Enter new path", currentFilePath) || undefined;
-    }
+    const performMove = async (targetPath: string) => {
+      if (!targetPath) return;
+      if (!targetPath.startsWith("/")) targetPath = "/" + targetPath;
+      if (currentFilePath === targetPath) return;
 
-    if (!newPath) return;
-    if (!newPath.startsWith("/")) newPath = "/" + newPath;
-    if (currentFilePath === newPath) return;
+      const apiFileUrl = apiPath(file.name);
 
-    const apiFileUrl = apiPath(file.name);
+      // Extract the relative path from the absolute newPath
+      // newPath is like "/Photos/Screenshot.png", need to convert to properly encoded path
+      const pathSegments = targetPath.split("/").filter(Boolean);
+      const fileName = pathSegments.pop(); // Get the filename
+      const folderPath = "/" + pathSegments.join("/"); // Get the folder path
 
-    // Extract the relative path from the absolute newPath
-    // newPath is like "/Photos/Screenshot.png", need to convert to properly encoded path
-    const pathSegments = newPath.split("/").filter(Boolean);
-    const fileName = pathSegments.pop(); // Get the filename
-    const folderPath = "/" + pathSegments.join("/"); // Get the folder path
+      // Build properly encoded destination path
+      // Note: We encode the path but DON'T add /api prefix for the Destination header
+      // The backend expects the destination path WITHOUT /api prefix
+      let destinationPath = folderPath;
+      if (!destinationPath.endsWith("/")) destinationPath += "/";
+      destinationPath += fileName?.split("/").map(encodeURIComponent).join("/");
 
-    // Build properly encoded destination path
-    // Note: We encode the path but DON'T add /api prefix for the Destination header
-    // The backend expects the destination path WITHOUT /api prefix
-    let destinationPath = folderPath;
-    if (!destinationPath.endsWith("/")) destinationPath += "/";
-    destinationPath += fileName?.split("/").map(encodeURIComponent).join("/");
+      // WebDAV requires full URL in Destination header (without /api prefix!)
+      const destinationUrl = window.location.origin + destinationPath;
 
-    // WebDAV requires full URL in Destination header (without /api prefix!)
-    const destinationUrl = window.location.origin + destinationPath;
+      // Build the API URL for checking if destination exists
+      let apiNewFileUrl = "/api" + folderPath;
+      if (!apiNewFileUrl.endsWith("/")) apiNewFileUrl += "/";
+      apiNewFileUrl += fileName?.split("/").map(encodeURIComponent).join("/");
 
-    // Build the API URL for checking if destination exists
-    let apiNewFileUrl = "/api" + folderPath;
-    if (!apiNewFileUrl.endsWith("/")) apiNewFileUrl += "/";
-    apiNewFileUrl += fileName?.split("/").map(encodeURIComponent).join("/");
+      try {
+        const res1 = await fetch(apiNewFileUrl, {
+          method: "HEAD",
+        });
+        if (res1.status === 200) {
+          Modal.confirm({
+            title: "File exists",
+            content: "A file already exists at this location. Do you want to override it?",
+            okText: "Override",
+            okType: "danger",
+            cancelText: "Cancel",
+            onOk: async () => {
+              try {
+                const res2 = await fetch(apiFileUrl, {
+                  method: "MOVE",
+                  headers: {
+                    Destination: destinationUrl,
+                  },
+                });
 
-    try {
-      const res1 = await fetch(apiNewFileUrl, {
-        method: "HEAD",
-      });
-      if (res1.status === 200) {
-        if (!confirm("Override existing file?")) {
+                if (!res2.ok) {
+                  const errorText = await res2.text();
+                  throw new Error(`HTTP ${res2.status}: ${errorText || res2.statusText}`);
+                }
+
+                location.reload();
+              } catch (err) {
+                const error = err as Error;
+                Modal.error({
+                  title: "Move failed",
+                  content: `Cannot move "${currentFilePath}" to "${targetPath}": ${error.message}`,
+                });
+              }
+            },
+          });
           return;
         }
-      }
 
-      const res2 = await fetch(apiFileUrl, {
-        method: "MOVE",
-        headers: {
-          Destination: destinationUrl,
+        const res2 = await fetch(apiFileUrl, {
+          method: "MOVE",
+          headers: {
+            Destination: destinationUrl,
+          },
+        });
+
+        if (!res2.ok) {
+          const errorText = await res2.text();
+          throw new Error(`HTTP ${res2.status}: ${errorText || res2.statusText}`);
+        }
+
+        location.reload();
+      } catch (err) {
+        const error = err as Error;
+        Modal.error({
+          title: "Move failed",
+          content: `Cannot move "${currentFilePath}" to "${targetPath}": ${error.message}`,
+        });
+      }
+    };
+
+    if (!newPath) {
+      let movePath = currentFilePath;
+      Modal.confirm({
+        title: "Move file",
+        content: (
+          <Input
+            placeholder="Enter new path"
+            defaultValue={currentFilePath}
+            onChange={(e) => {
+              movePath = e.target.value;
+            }}
+            onPressEnter={() => {
+              Modal.destroyAll();
+              performMove(movePath);
+            }}
+            autoFocus
+          />
+        ),
+        okText: "Move",
+        cancelText: "Cancel",
+        onOk: () => {
+          performMove(movePath);
         },
       });
-
-      if (!res2.ok) {
-        const errorText = await res2.text();
-        throw new Error(`HTTP ${res2.status}: ${errorText || res2.statusText}`);
-      }
-
-      location.reload();
-    } catch (err) {
-      const error = err as Error;
-      alert(
-        `Cannot move "${currentFilePath}" to "${newPath}": ${error.message}`
-      );
+    } else {
+      performMove(newPath);
     }
   };
 
