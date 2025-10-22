@@ -1,14 +1,14 @@
-import { Suspense, useEffect, useTransition } from "react";
+import { Suspense, useEffect } from "react";
 import { Flex, Layout, Typography, Spin, Modal, Input } from "antd";
 import { useLocation, useNavigate } from "react-router-dom";
-import { useAtom, useAtomValue, useSetAtom } from "jotai";
+import { useAtomValue, useSetAtom } from "jotai";
 import FilesTable from "./components/files-table";
 import { Header } from "./components/layout/header";
 import { Breadcrumb } from "./components/layout/breadcrumb";
 import UppyUploader from "./components/uppy-uploader";
 import { filePickerTriggerAtom } from "./store/uppyStore";
 import { apiPath } from "./utils";
-import { currentLocationAtom, dataAtom } from "./state";
+import { currentLocationAtom, dataAtom, metadataAtom, authAtom, permissionsAtom } from "./state";
 
 const { Content } = Layout;
 
@@ -17,25 +17,27 @@ export type { PathItem, DATA } from "./state";
 
 // Main content component wrapped in Suspense
 function AppContent() {
-  const [data, refreshData] = useAtom(dataAtom);
+  // Use focused atoms for better granularity
+  const metadata = useAtomValue(metadataAtom);
+  const auth = useAtomValue(authAtom);
+  const permissions = useAtomValue(permissionsAtom);
+  const refreshData = useSetAtom(dataAtom);
+
   const location = useLocation();
   const navigate = useNavigate();
   const setLocation = useSetAtom(currentLocationAtom);
-  const [isPending, startTransition] = useTransition();
   const filePickerTrigger = useAtomValue(filePickerTriggerAtom);
 
   // Sync location changes to Jotai state
   useEffect(() => {
-    startTransition(() => {
-      setLocation({
-        pathname: location.pathname,
-        search: location.search,
-      });
+    setLocation({
+      pathname: location.pathname,
+      search: location.search,
     });
   }, [location.pathname, location.search, setLocation]);
 
   const checkAuth = async (variant?: string) => {
-    if (!data?.auth) return;
+    if (!auth?.auth) return;
     const qs = variant ? `?${variant}` : "";
     const res = await fetch(apiPath() + qs, {
       method: "CHECKAUTH",
@@ -46,10 +48,10 @@ function AppContent() {
   };
 
   const logout = () => {
-    if (!data?.auth) return;
+    if (!auth?.auth) return;
     const url = apiPath();
     const xhr = new XMLHttpRequest();
-    xhr.open("LOGOUT", url, true, data.user);
+    xhr.open("LOGOUT", url, true, auth.user);
     xhr.onload = () => {
       navigate("/");
     };
@@ -82,10 +84,10 @@ function AppContent() {
   return (
     <Layout style={{ minHeight: "100vh", background: "#f5f5f5" }}>
       <Header
-        auth={data.auth}
-        user={data.user}
-        allowUpload={data.allow_upload}
-        allowSearch={data.allow_search}
+        auth={auth.auth}
+        user={auth.user}
+        allowUpload={permissions.allow_upload}
+        allowSearch={permissions.allow_search}
         onSearch={(query: string) => {
           const href = location.pathname;
           navigate(query ? `${href}?q=${query}` : href);
@@ -132,23 +134,20 @@ function AppContent() {
 
       <Content style={{ padding: "0", position: "relative" }}>
         <Flex justify="space-between" align="center" gap="16px">
-          <Breadcrumb href={data.href} uriPrefix={data.uri_prefix} />
+          <Breadcrumb href={metadata.href} uriPrefix={metadata.uri_prefix} />
           <Typography.Text type="secondary" style={{ padding: "0 24px" }}>
             Drop files anywhere to upload
           </Typography.Text>
         </Flex>
 
-        {data.kind === "Index" && (
+        {metadata.kind === "Index" && (
           <>
-            <FilesTable loading={isPending} />
-            {data.allow_upload && (
+            <FilesTable />
+            {permissions.allow_upload && (
               <UppyUploader
-                auth={data.auth}
+                auth={auth.auth}
                 onAuthRequired={async () => {
                   await checkAuth();
-                }}
-                onUploadComplete={() => {
-                  refreshData();
                 }}
               />
             )}

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Table, Button, Space, Empty, Tooltip, Modal, Input } from "antd";
+import { Table, Button, Space, Tooltip, Modal, Input, message } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import {
   FolderOutlined,
@@ -11,6 +11,7 @@ import {
   DownloadOutlined,
   DeleteOutlined,
   DragOutlined,
+  ShareAltOutlined,
 } from "@ant-design/icons";
 import {
   formatMtime,
@@ -26,9 +27,8 @@ import { useAtomValue, useSetAtom } from "jotai";
 import {
   dataAtom,
   pathsAtom,
-  allowUploadAtom,
-  allowDeleteAtom,
-  allowArchiveAtom,
+  permissionsAtom,
+  loadableDataAtom,
 } from "../state";
 
 export interface PathItem {
@@ -53,23 +53,26 @@ export interface PathItem {
   };
 }
 
-interface FilesTableProps {
-  loading?: boolean;
-}
+interface FilesTableProps {}
 
-export default function FilesTable({ loading }: FilesTableProps) {
-  const DATA = useAtomValue(dataAtom);
+export default function FilesTable({}: FilesTableProps) {
+  // Use focused atoms for better performance
   const paths = useAtomValue(pathsAtom);
-  const allowUpload = useAtomValue(allowUploadAtom);
-  const allowDelete = useAtomValue(allowDeleteAtom);
-  const allowArchive = useAtomValue(allowArchiveAtom);
+  const permissions = useAtomValue(permissionsAtom);
+  const loadableData = useAtomValue(loadableDataAtom);
   const refreshData = useSetAtom(dataAtom);
 
-  console.log({ DATA, paths });
+  // Check if data is loading from any source
+  const isLoading = loadableData.state === "loading";
+
   const [previewFile, setPreviewFile] = useState<string | null>(null);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [draggedFile, setDraggedFile] = useState<PathItem | null>(null);
   const [dragOverFolder, setDragOverFolder] = useState<string | null>(null);
+  const [shareModalVisible, setShareModalVisible] = useState(false);
+  const [shareUrl, setShareUrl] = useState("");
+  const [sharingFile, setSharingFile] = useState<PathItem | null>(null);
+  const [loadingShare, setLoadingShare] = useState(false);
 
   const getFileIcon = (file: PathItem) => {
     const isDir = file.path_type.endsWith("Dir");
@@ -114,6 +117,49 @@ export default function FilesTable({ loading }: FilesTableProps) {
         stampStatus={file.stamp_status}
       />
     );
+  };
+
+  const handleShare = async (file: PathItem) => {
+    setSharingFile(file);
+    setLoadingShare(true);
+
+    try {
+      const url = apiPath(file.name) + "?share";
+      const res = await fetch(url, {
+        method: "POST",
+      });
+
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+      }
+
+      const data = await res.json();
+      if (data.success) {
+        // Create full URL with current origin
+        const fullShareUrl = window.location.origin + data.share_url;
+        setShareUrl(fullShareUrl);
+        setShareModalVisible(true);
+        message.success("Share link created successfully!");
+      } else {
+        throw new Error("Failed to create share link");
+      }
+    } catch (err) {
+      const error = err as Error;
+      message.error(`Cannot create share link: ${error.message}`);
+    } finally {
+      setLoadingShare(false);
+    }
+  };
+
+  const handleCopyShareLink = () => {
+    navigator.clipboard
+      .writeText(shareUrl)
+      .then(() => {
+        message.success("Share link copied to clipboard!");
+      })
+      .catch(() => {
+        message.error("Failed to copy link");
+      });
   };
 
   const handleDelete = async (file: PathItem) => {
@@ -188,7 +234,8 @@ export default function FilesTable({ loading }: FilesTableProps) {
         if (res1.status === 200) {
           Modal.confirm({
             title: "File exists",
-            content: "A file already exists at this location. Do you want to override it?",
+            content:
+              "A file already exists at this location. Do you want to override it?",
             okText: "Override",
             okType: "danger",
             cancelText: "Cancel",
@@ -203,10 +250,12 @@ export default function FilesTable({ loading }: FilesTableProps) {
 
                 if (!res2.ok) {
                   const errorText = await res2.text();
-                  throw new Error(`HTTP ${res2.status}: ${errorText || res2.statusText}`);
+                  throw new Error(
+                    `HTTP ${res2.status}: ${errorText || res2.statusText}`
+                  );
                 }
 
-                location.reload();
+                refreshData();
               } catch (err) {
                 const error = err as Error;
                 Modal.error({
@@ -228,10 +277,12 @@ export default function FilesTable({ loading }: FilesTableProps) {
 
         if (!res2.ok) {
           const errorText = await res2.text();
-          throw new Error(`HTTP ${res2.status}: ${errorText || res2.statusText}`);
+          throw new Error(
+            `HTTP ${res2.status}: ${errorText || res2.statusText}`
+          );
         }
 
-        location.reload();
+        refreshData();
       } catch (err) {
         const error = err as Error;
         Modal.error({
@@ -318,13 +369,19 @@ export default function FilesTable({ loading }: FilesTableProps) {
   };
 
   const handleDragOver = (e: React.DragEvent, targetFile: PathItem) => {
+    // If we're not dragging an internal row, this must be an external file drag
+    // Let it bubble up to Uppy's DropTarget on document.body
+    if (!draggedFile) {
+      return;
+    }
+
     e.preventDefault();
     e.stopPropagation();
 
     const isDir = targetFile.path_type.endsWith("Dir");
 
     // Only allow dropping on folders
-    if (isDir && draggedFile && draggedFile.name !== targetFile.name) {
+    if (isDir && draggedFile.name !== targetFile.name) {
       e.dataTransfer.dropEffect = "move";
       setDragOverFolder(targetFile.name);
     } else {
@@ -333,11 +390,22 @@ export default function FilesTable({ loading }: FilesTableProps) {
   };
 
   const handleDragLeave = (e: React.DragEvent) => {
+    // Only handle internal row drags
+    if (!draggedFile) {
+      return;
+    }
+
     e.preventDefault();
     setDragOverFolder(null);
   };
 
   const handleDrop = async (e: React.DragEvent, targetFolder: PathItem) => {
+    // If we're not dragging an internal row, this is an external file drag
+    // Let it bubble up to Uppy's DropTarget
+    if (!draggedFile) {
+      return;
+    }
+
     e.preventDefault();
     e.stopPropagation();
 
@@ -345,7 +413,7 @@ export default function FilesTable({ loading }: FilesTableProps) {
 
     const isDir = targetFolder.path_type.endsWith("Dir");
 
-    if (!draggedFile || !isDir || draggedFile.name === targetFolder.name) {
+    if (!isDir || draggedFile.name === targetFolder.name) {
       return;
     }
 
@@ -437,13 +505,28 @@ export default function FilesTable({ loading }: FilesTableProps) {
               <Button
                 type="text"
                 icon={<DownloadOutlined />}
-                href={path + (isDir && allowArchive ? "?zip" : "?download")}
+                href={
+                  path +
+                  (isDir && permissions.allow_archive ? "?zip" : "?download")
+                }
                 download
                 size="small"
               />
             </Tooltip>
 
-            {allowUpload && allowDelete && (
+            {!isDir && (
+              <Tooltip title="Share file">
+                <Button
+                  type="text"
+                  icon={<ShareAltOutlined />}
+                  onClick={() => handleShare(file)}
+                  loading={loadingShare && sharingFile?.name === file.name}
+                  size="small"
+                />
+              </Tooltip>
+            )}
+
+            {permissions.allow_upload && permissions.allow_delete && (
               <Tooltip title="Move to new path">
                 <Button
                   type="text"
@@ -454,7 +537,7 @@ export default function FilesTable({ loading }: FilesTableProps) {
               </Tooltip>
             )}
 
-            {allowDelete && (
+            {permissions.allow_delete && (
               <Tooltip title="Delete">
                 <Button
                   type="text"
@@ -471,30 +554,11 @@ export default function FilesTable({ loading }: FilesTableProps) {
     },
   ];
 
-  if (!paths || paths.length === 0) {
-    return (
-      <Empty
-        image={<FolderOutlined style={{ fontSize: 64, color: "#d9d9d9" }} />}
-        description={
-          <div>
-            <div style={{ fontSize: 16, fontWeight: 500, marginBottom: 8 }}>
-              This folder is empty
-            </div>
-            <div style={{ fontSize: 14, color: "#8c8c8c" }}>
-              Upload files or create a new folder to get started
-            </div>
-          </div>
-        }
-        style={{ margin: "40px 0" }}
-      />
-    );
-  }
-
   return (
     <>
       <div style={{ padding: "0 24px 24px" }}>
         <Table
-          loading={loading}
+          loading={isLoading}
           columns={columns}
           dataSource={paths}
           rowKey="name"
@@ -531,6 +595,51 @@ export default function FilesTable({ loading }: FilesTableProps) {
         fileName={previewFile}
         onClose={handleDrawerClose}
       />
+
+      <Modal
+        title="Share File"
+        open={shareModalVisible}
+        onCancel={() => setShareModalVisible(false)}
+        footer={[
+          <Button key="copy" type="primary" onClick={handleCopyShareLink}>
+            Copy Link
+          </Button>,
+          <Button key="close" onClick={() => setShareModalVisible(false)}>
+            Close
+          </Button>,
+        ]}
+      >
+        <div style={{ marginBottom: 16 }}>
+          <p style={{ marginBottom: 8, color: "#8c8c8c" }}>
+            Share this link to allow others to download the file:
+          </p>
+          <Input
+            value={shareUrl}
+            readOnly
+            onClick={(e) => e.currentTarget.select()}
+            style={{ fontFamily: "monospace", fontSize: 12 }}
+          />
+        </div>
+        {sharingFile && (
+          <div
+            style={{
+              marginTop: 16,
+              padding: 12,
+              background: "#f5f5f5",
+              borderRadius: 4,
+            }}
+          >
+            <p style={{ margin: 0, fontSize: 12, color: "#595959" }}>
+              <strong>File:</strong> {sharingFile.name}
+            </p>
+            <p style={{ margin: "4px 0 0 0", fontSize: 12, color: "#595959" }}>
+              <strong>Note:</strong> Anyone with this link can download the
+              file. The download will be tracked with cryptographic
+              verification.
+            </p>
+          </div>
+        )}
+      </Modal>
     </>
   );
 }

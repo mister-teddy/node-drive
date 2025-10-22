@@ -1,5 +1,6 @@
-import { Breadcrumb as AntBreadcrumb } from 'antd';
-import { HomeOutlined } from '@ant-design/icons';
+import { Breadcrumb as AntBreadcrumb } from "antd";
+import { HomeOutlined } from "@ant-design/icons";
+import { Link } from "react-router-dom";
 
 interface BreadcrumbItem {
   name: string;
@@ -45,9 +46,9 @@ export function Breadcrumb({ href, uriPrefix }: BreadcrumbProps) {
     if (index === 0) {
       return {
         title: (
-          <a href={item.href} title="Root">
+          <Link to={item.href} title="Root">
             <HomeOutlined />
-          </a>
+          </Link>
         ),
       };
     }
@@ -59,12 +60,12 @@ export function Breadcrumb({ href, uriPrefix }: BreadcrumbProps) {
     }
 
     return {
-      title: <a href={item.href}>{item.name}</a>,
+      title: <Link to={item.href}>{item.name}</Link>,
     };
   });
 
   return (
-    <div style={{ padding: '16px 24px' }}>
+    <div style={{ padding: "16px 24px" }}>
       <AntBreadcrumb items={breadcrumbItems} />
     </div>
   );

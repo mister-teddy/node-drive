@@ -14,15 +14,16 @@ import {
   setIsDraggingOverWithDelay,
 } from "../store/uppyStore";
 import { apiPath } from "../utils";
+import { dataAtom } from "../state";
 
 interface UppyUploaderProps {
   auth: boolean;
   onAuthRequired: () => Promise<void>;
-  onUploadComplete: () => void;
 }
 
-const UppyUploader = ({ auth, onAuthRequired, onUploadComplete }: UppyUploaderProps) => {
+const UppyUploader = ({ auth, onAuthRequired }: UppyUploaderProps) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const refreshData = useSetAtom(dataAtom);
 
   const [isDraggingOver, setIsDraggingOver] = useAtom(isDraggingOverAtom);
   const setHasFiles = useSetAtom(hasFilesAtom);
@@ -37,16 +38,17 @@ const UppyUploader = ({ auth, onAuthRequired, onUploadComplete }: UppyUploaderPr
       },
     })
       .use(XHRUpload, {
-        endpoint: (file: any) => {
+        endpoint: (file) => {
           // Use apiPath to get the correct /api prefix
-          return apiPath(file.name);
+          const fileName = (Array.isArray(file) ? file[0] : file).name;
+          return apiPath(fileName);
         },
         method: "PUT",
         formData: false,
         fieldName: "file",
         allowedMetaFields: [],
         timeout: 120000,
-        getResponseData(xhr: any) {
+        getResponseData(xhr) {
           try {
             const response = JSON.parse(xhr.responseText);
             return {
@@ -77,26 +79,36 @@ const UppyUploader = ({ auth, onAuthRequired, onUploadComplete }: UppyUploaderPr
         },
       });
 
-    uppyInstance.on("upload-success", (file: any, response: any) => {
+    uppyInstance.on("upload-success", (file, response) => {
       console.log("Upload successful:", file?.name, response);
     });
 
-    uppyInstance.on("complete", (result: any) => {
+    return uppyInstance;
+  });
+
+  // Handle upload completion
+  useEffect(() => {
+    const handleComplete = (result: any) => {
       console.log("Upload complete:", result);
-      if (result.successful.length > 0) {
+      const successCount = result.successful?.length ?? 0;
+      if (successCount > 0) {
         const emptyFolder = document.querySelector(".empty-folder");
         if (emptyFolder && !emptyFolder.classList.contains("hidden")) {
           emptyFolder.classList.add("hidden");
         }
         // Refetch data to show uploaded files
-        setTimeout(() => {
-          onUploadComplete();
-        }, 500);
+        const failedCount = result.failed?.length ?? 0;
+        setHasFiles(failedCount > 0);
+        refreshData();
       }
-    });
+    };
 
-    return uppyInstance;
-  });
+    uppy.on("complete", handleComplete);
+
+    return () => {
+      uppy.off("complete", handleComplete);
+    };
+  }, [uppy, refreshData, setHasFiles]);
 
   // Track when files are added or removed
   useEffect(() => {
@@ -211,6 +223,6 @@ const UppyUploader = ({ auth, onAuthRequired, onUploadComplete }: UppyUploaderPr
       )}
     </>
   );
-}
+};
 
 export default UppyUploader;

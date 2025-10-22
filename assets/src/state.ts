@@ -77,26 +77,100 @@ export const dataAtom = atomWithRefresh(async (get) => {
   return parsedData;
 });
 
-// Loadable wrapper for Suspense integration
+// Loadable wrapper - use this to avoid Suspense and show loading states
 export const loadableDataAtom = loadable(dataAtom);
 
-// Derived/selector atoms
-export const pathsAtom = atom(async (get) => {
-  const data = await get(dataAtom);
-  return data.paths || [];
+// Synchronous focused atoms derived from loadableDataAtom
+// These preserve previous data during loading to avoid showing empty states
+
+const pathsCache = { current: [] as PathItem[] };
+export const pathsAtom = atom((get) => {
+  const loadableData = get(loadableDataAtom);
+  if (loadableData.state === "hasData") {
+    pathsCache.current = loadableData.data.paths || [];
+    return pathsCache.current;
+  }
+  // Return cached data during loading
+  return pathsCache.current;
 });
 
-export const allowUploadAtom = atom(async (get) => {
-  const data = await get(dataAtom);
-  return data.allow_upload;
+const metadataCache = {
+  current: {
+    href: "/",
+    uri_prefix: "",
+    kind: "Index" as "Index" | "Edit" | "View",
+    dir_exists: true,
+  }
+};
+export const metadataAtom = atom((get) => {
+  const loadableData = get(loadableDataAtom);
+  if (loadableData.state === "hasData") {
+    metadataCache.current = {
+      href: loadableData.data.href,
+      uri_prefix: loadableData.data.uri_prefix,
+      kind: loadableData.data.kind,
+      dir_exists: loadableData.data.dir_exists,
+    };
+    return metadataCache.current;
+  }
+  // Return cached data during loading
+  return metadataCache.current;
 });
 
-export const allowDeleteAtom = atom(async (get) => {
-  const data = await get(dataAtom);
-  return data.allow_delete;
+const permissionsCache = {
+  current: {
+    allow_upload: false,
+    allow_delete: false,
+    allow_search: false,
+    allow_archive: false,
+  }
+};
+export const permissionsAtom = atom((get) => {
+  const loadableData = get(loadableDataAtom);
+  if (loadableData.state === "hasData") {
+    permissionsCache.current = {
+      allow_upload: loadableData.data.allow_upload,
+      allow_delete: loadableData.data.allow_delete,
+      allow_search: loadableData.data.allow_search,
+      allow_archive: loadableData.data.allow_archive,
+    };
+    return permissionsCache.current;
+  }
+  // Return cached data during loading
+  return permissionsCache.current;
 });
 
-export const allowArchiveAtom = atom(async (get) => {
-  const data = await get(dataAtom);
-  return data.allow_archive;
+const authCache = {
+  current: {
+    auth: false,
+    user: "",
+  }
+};
+export const authAtom = atom((get) => {
+  const loadableData = get(loadableDataAtom);
+  if (loadableData.state === "hasData") {
+    authCache.current = {
+      auth: loadableData.data.auth,
+      user: loadableData.data.user,
+    };
+    return authCache.current;
+  }
+  // Return cached data during loading
+  return authCache.current;
+});
+
+// Legacy atoms for backward compatibility
+export const allowUploadAtom = atom((get) => {
+  const perms = get(permissionsAtom);
+  return perms.allow_upload;
+});
+
+export const allowDeleteAtom = atom((get) => {
+  const perms = get(permissionsAtom);
+  return perms.allow_delete;
+});
+
+export const allowArchiveAtom = atom((get) => {
+  const perms = get(permissionsAtom);
+  return perms.allow_archive;
 });

@@ -26,6 +26,14 @@ pub struct Artifact {
     #[serde(skip)]
     pub file_path: PathBuf,
     pub sha256_hex: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub verified_chain: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub verified_timestamp: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub verified_height: Option<u64>,
+    #[serde(skip)]
+    pub last_check_at: Option<String>,
 }
 
 impl Artifact {
@@ -34,6 +42,10 @@ impl Artifact {
         Self {
             file_path,
             sha256_hex,
+            verified_chain: None,
+            verified_timestamp: None,
+            verified_height: None,
+            last_check_at: None,
         }
     }
 }
@@ -52,14 +64,6 @@ pub struct Event {
     pub event_hash_hex: String,
     pub signatures: Signatures,
     pub ots_proof_b64: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub verified_chain: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub verified_timestamp: Option<i64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub verified_height: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub last_verified_at: Option<String>,
 }
 
 /// Event action type
@@ -127,7 +131,11 @@ impl ProvenanceDb {
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 file_path TEXT NOT NULL UNIQUE,
                 sha256_hex TEXT NOT NULL,
-                created_at TEXT NOT NULL
+                created_at TEXT NOT NULL,
+                verified_chain TEXT,
+                verified_timestamp INTEGER,
+                verified_height INTEGER,
+                last_check_at TEXT
             )",
             [],
         )?;
@@ -143,10 +151,6 @@ impl ProvenanceDb {
                 issued_at TEXT NOT NULL,
                 event_hash_hex TEXT NOT NULL UNIQUE,
                 ots_proof_b64 TEXT NOT NULL,
-                verified_chain TEXT,
-                verified_timestamp INTEGER,
-                verified_height INTEGER,
-                last_verified_at TEXT,
                 FOREIGN KEY (artifact_id) REFERENCES artifacts(id) ON DELETE CASCADE,
                 UNIQUE(artifact_id, index_num)
             )",
@@ -200,6 +204,53 @@ impl ProvenanceDb {
             [],
         )?;
 
+        // Create shares table for file sharing functionality
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS shares (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                share_id TEXT NOT NULL UNIQUE,
+                file_path TEXT NOT NULL,
+                file_sha256_hex TEXT NOT NULL,
+                artifact_id INTEGER,
+                created_at TEXT NOT NULL,
+                shared_by TEXT,
+                owner_pubkey_hex TEXT NOT NULL,
+                share_signature_hex TEXT NOT NULL,
+                is_active INTEGER NOT NULL DEFAULT 1,
+                FOREIGN KEY (artifact_id) REFERENCES artifacts(id) ON DELETE CASCADE
+            )",
+            [],
+        )?;
+
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_shares_share_id ON shares(share_id)",
+            [],
+        )?;
+
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_shares_file_path ON shares(file_path)",
+            [],
+        )?;
+
+        // Create share_downloads table to track distribution chain
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS share_downloads (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                share_id TEXT NOT NULL,
+                downloaded_at TEXT NOT NULL,
+                downloaded_by TEXT,
+                redistributor_pubkey_hex TEXT,
+                redistributor_signature_hex TEXT,
+                FOREIGN KEY (share_id) REFERENCES shares(share_id) ON DELETE CASCADE
+            )",
+            [],
+        )?;
+
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_share_downloads_share_id ON share_downloads(share_id)",
+            [],
+        )?;
+
         Ok(Self {
             conn: Arc::new(Mutex::new(conn)),
             db_path: Arc::new(db_path),
@@ -235,8 +286,10 @@ impl ProvenanceDb {
     pub fn get_artifact_by_path(&self, file_path: &str) -> Result<Option<(i64, Artifact)>> {
         let conn = self.conn.lock().unwrap();
 
-        let mut stmt =
-            conn.prepare("SELECT id, file_path, sha256_hex FROM artifacts WHERE file_path = ?1")?;
+        let mut stmt = conn.prepare(
+            "SELECT id, file_path, sha256_hex, verified_chain, verified_timestamp, verified_height, last_check_at
+             FROM artifacts WHERE file_path = ?1"
+        )?;
 
         let mut rows = stmt.query(params![file_path])?;
 
@@ -244,7 +297,19 @@ impl ProvenanceDb {
             let id: i64 = row.get(0)?;
             let file_path_str: String = row.get(1)?;
             let sha256_hex: String = row.get(2)?;
-            let artifact = Artifact::new(PathBuf::from(file_path_str), sha256_hex);
+            let verified_chain: Option<String> = row.get(3)?;
+            let verified_timestamp: Option<i64> = row.get(4)?;
+            let verified_height: Option<i64> = row.get(5)?;
+            let last_check_at: Option<String> = row.get(6)?;
+
+            let artifact = Artifact {
+                file_path: PathBuf::from(file_path_str),
+                sha256_hex,
+                verified_chain,
+                verified_timestamp,
+                verified_height: verified_height.map(|h| h as u64),
+                last_check_at,
+            };
             Ok(Some((id, artifact)))
         } else {
             Ok(None)
@@ -340,8 +405,7 @@ impl ProvenanceDb {
         let conn = self.conn.lock().unwrap();
 
         let mut stmt = conn.prepare(
-            "SELECT id, index_num, action, artifact_sha256_hex, prev_event_hash_hex, issued_at, event_hash_hex, ots_proof_b64,
-                    verified_chain, verified_timestamp, verified_height, last_verified_at
+            "SELECT id, index_num, action, artifact_sha256_hex, prev_event_hash_hex, issued_at, event_hash_hex, ots_proof_b64
              FROM events
              WHERE artifact_id = ?1
              ORDER BY index_num ASC"
@@ -359,10 +423,6 @@ impl ProvenanceDb {
             let issued_at: String = row.get(5)?;
             let event_hash_hex: String = row.get(6)?;
             let ots_proof_b64: String = row.get(7)?;
-            let verified_chain: Option<String> = row.get(8)?;
-            let verified_timestamp: Option<i64> = row.get(9)?;
-            let verified_height: Option<u64> = row.get(10)?;
-            let last_verified_at: Option<String> = row.get(11)?;
 
             // Get actors
             let mut actors_stmt =
@@ -423,10 +483,6 @@ impl ProvenanceDb {
                 event_hash_hex,
                 signatures,
                 ots_proof_b64,
-                verified_chain,
-                verified_timestamp,
-                verified_height,
-                last_verified_at,
             });
         }
 
@@ -477,11 +533,10 @@ impl ProvenanceDb {
         Ok(())
     }
 
-    /// Update verification results for a specific event
+    /// Update verification results for an artifact
     pub fn update_verification_result(
         &self,
         artifact_id: i64,
-        event_index: u32,
         chain: &str,
         timestamp: i64,
         height: u64,
@@ -490,20 +545,32 @@ impl ProvenanceDb {
         let now = chrono::Utc::now().to_rfc3339();
 
         conn.execute(
-            "UPDATE events
+            "UPDATE artifacts
              SET verified_chain = ?1,
                  verified_timestamp = ?2,
                  verified_height = ?3,
-                 last_verified_at = ?4
-             WHERE artifact_id = ?5 AND index_num = ?6",
+                 last_check_at = ?4
+             WHERE id = ?5",
             params![
                 chain,
                 timestamp,
                 height as i64,
                 now,
-                artifact_id,
-                event_index
+                artifact_id
             ],
+        )?;
+
+        Ok(())
+    }
+
+    /// Update last_check_at timestamp for an artifact (to throttle timestamp checking)
+    pub fn update_last_check_at(&self, artifact_id: i64) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        let now = chrono::Utc::now().to_rfc3339();
+
+        conn.execute(
+            "UPDATE artifacts SET last_check_at = ?1 WHERE id = ?2",
+            params![now, artifact_id],
         )?;
 
         Ok(())
@@ -523,28 +590,236 @@ impl ProvenanceDb {
         let tx = conn.transaction()?;
         let now = chrono::Utc::now().to_rfc3339();
 
+        // Update OTS proof in events table
         tx.execute(
             "UPDATE events
-             SET ots_proof_b64 = ?1,
-                 verified_chain = ?2,
-                 verified_timestamp = ?3,
-                 verified_height = ?4,
-                 last_verified_at = ?5
-             WHERE artifact_id = ?6 AND index_num = ?7",
+             SET ots_proof_b64 = ?1
+             WHERE artifact_id = ?2 AND index_num = ?3",
+            params![ots_proof_b64, artifact_id, event_index],
+        )?;
+
+        // Update verification results in artifacts table
+        tx.execute(
+            "UPDATE artifacts
+             SET verified_chain = ?1,
+                 verified_timestamp = ?2,
+                 verified_height = ?3,
+                 last_check_at = ?4
+             WHERE id = ?5",
             params![
-                ots_proof_b64,
                 chain,
                 timestamp,
                 height as i64,
                 now,
-                artifact_id,
-                event_index
+                artifact_id
             ],
         )?;
 
         tx.commit()?;
         Ok(())
     }
+
+    /// Create a new share for a file
+    pub fn create_share(
+        &self,
+        share_id: &str,
+        file_path: &str,
+        file_sha256_hex: &str,
+        created_at: &str,
+        shared_by: Option<&str>,
+        owner_pubkey_hex: &str,
+        share_signature_hex: &str,
+    ) -> Result<i64> {
+        let conn = self.conn.lock().unwrap();
+
+        // Get artifact_id if the file exists in provenance system
+        let artifact_id: Option<i64> = conn
+            .query_row(
+                "SELECT id FROM artifacts WHERE file_path = ?1",
+                params![file_path],
+                |row| row.get(0),
+            )
+            .ok();
+
+        let share_db_id: i64 = conn.query_row(
+            "INSERT INTO shares (share_id, file_path, file_sha256_hex, artifact_id, created_at, shared_by, owner_pubkey_hex, share_signature_hex)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+             RETURNING id",
+            params![
+                share_id,
+                file_path,
+                file_sha256_hex,
+                artifact_id,
+                created_at,
+                shared_by,
+                owner_pubkey_hex,
+                share_signature_hex
+            ],
+            |row| row.get(0),
+        )?;
+
+        Ok(share_db_id)
+    }
+
+    /// Get share information by share_id
+    pub fn get_share(&self, share_id: &str) -> Result<Option<ShareInfo>> {
+        let conn = self.conn.lock().unwrap();
+
+        let mut stmt = conn.prepare(
+            "SELECT file_path, file_sha256_hex, created_at, shared_by, owner_pubkey_hex, share_signature_hex, is_active
+             FROM shares WHERE share_id = ?1",
+        )?;
+
+        let mut rows = stmt.query(params![share_id])?;
+
+        if let Some(row) = rows.next()? {
+            let file_path: String = row.get(0)?;
+            let file_sha256_hex: String = row.get(1)?;
+            let created_at: String = row.get(2)?;
+            let shared_by: Option<String> = row.get(3)?;
+            let owner_pubkey_hex: String = row.get(4)?;
+            let share_signature_hex: String = row.get(5)?;
+            let is_active: i32 = row.get(6)?;
+
+            Ok(Some(ShareInfo {
+                share_id: share_id.to_string(),
+                file_path,
+                file_sha256_hex,
+                created_at,
+                shared_by,
+                owner_pubkey_hex,
+                share_signature_hex,
+                is_active: is_active != 0,
+            }))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Get all shares for a specific file path
+    pub fn get_shares_for_file(&self, file_path: &str) -> Result<Vec<ShareInfo>> {
+        let conn = self.conn.lock().unwrap();
+
+        let mut stmt = conn.prepare(
+            "SELECT share_id, file_path, file_sha256_hex, created_at, shared_by, owner_pubkey_hex, share_signature_hex, is_active
+             FROM shares WHERE file_path = ?1 AND is_active = 1
+             ORDER BY created_at DESC",
+        )?;
+
+        let mut rows = stmt.query(params![file_path])?;
+        let mut shares = Vec::new();
+
+        while let Some(row) = rows.next()? {
+            let share_id: String = row.get(0)?;
+            let file_path: String = row.get(1)?;
+            let file_sha256_hex: String = row.get(2)?;
+            let created_at: String = row.get(3)?;
+            let shared_by: Option<String> = row.get(4)?;
+            let owner_pubkey_hex: String = row.get(5)?;
+            let share_signature_hex: String = row.get(6)?;
+            let is_active: i32 = row.get(7)?;
+
+            shares.push(ShareInfo {
+                share_id,
+                file_path,
+                file_sha256_hex,
+                created_at,
+                shared_by,
+                owner_pubkey_hex,
+                share_signature_hex,
+                is_active: is_active != 0,
+            });
+        }
+
+        Ok(shares)
+    }
+
+    /// Record a share download (for tracking distribution chain)
+    pub fn record_share_download(
+        &self,
+        share_id: &str,
+        downloaded_by: Option<&str>,
+        redistributor_pubkey_hex: Option<&str>,
+        redistributor_signature_hex: Option<&str>,
+    ) -> Result<i64> {
+        let conn = self.conn.lock().unwrap();
+        let now = chrono::Utc::now().to_rfc3339();
+
+        let download_id: i64 = conn.query_row(
+            "INSERT INTO share_downloads (share_id, downloaded_at, downloaded_by, redistributor_pubkey_hex, redistributor_signature_hex)
+             VALUES (?1, ?2, ?3, ?4, ?5)
+             RETURNING id",
+            params![
+                share_id,
+                now,
+                downloaded_by,
+                redistributor_pubkey_hex,
+                redistributor_signature_hex
+            ],
+            |row| row.get(0),
+        )?;
+
+        Ok(download_id)
+    }
+
+    /// Deactivate a share (soft delete)
+    pub fn deactivate_share(&self, share_id: &str) -> Result<bool> {
+        let conn = self.conn.lock().unwrap();
+
+        let rows_affected = conn.execute(
+            "UPDATE shares SET is_active = 0 WHERE share_id = ?1",
+            params![share_id],
+        )?;
+
+        Ok(rows_affected > 0)
+    }
+
+    /// Get distribution chain for a share
+    pub fn get_distribution_chain(&self, share_id: &str) -> Result<Vec<DownloadRecord>> {
+        let conn = self.conn.lock().unwrap();
+
+        let mut stmt = conn.prepare(
+            "SELECT downloaded_at, downloaded_by, redistributor_pubkey_hex, redistributor_signature_hex
+             FROM share_downloads WHERE share_id = ?1
+             ORDER BY downloaded_at ASC",
+        )?;
+
+        let mut rows = stmt.query(params![share_id])?;
+        let mut downloads = Vec::new();
+
+        while let Some(row) = rows.next()? {
+            downloads.push(DownloadRecord {
+                downloaded_at: row.get(0)?,
+                downloaded_by: row.get(1)?,
+                redistributor_pubkey_hex: row.get(2)?,
+                redistributor_signature_hex: row.get(3)?,
+            });
+        }
+
+        Ok(downloads)
+    }
+}
+
+/// Share information
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ShareInfo {
+    pub share_id: String,
+    pub file_path: String,
+    pub file_sha256_hex: String,
+    pub created_at: String,
+    pub shared_by: Option<String>,
+    pub owner_pubkey_hex: String,
+    pub share_signature_hex: String,
+    pub is_active: bool,
+}
+
+/// Download record for tracking distribution chain
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DownloadRecord {
+    pub downloaded_at: String,
+    pub downloaded_by: Option<String>,
+    pub redistributor_pubkey_hex: Option<String>,
+    pub redistributor_signature_hex: Option<String>,
 }
 
 /// Canonical event representation (excluding signature, hash, and OTS proof)
@@ -711,6 +986,71 @@ pub fn verify_event_signature(
         Ok(_) => Ok(true),
         Err(_) => Ok(false),
     }
+}
+
+/// Generate a share signature for a file
+///
+/// The signature is over: SHA256(file_sha256 + share_id + timestamp)
+/// This ensures the share is tied to a specific file, share instance, and time
+///
+/// # Arguments
+/// * `file_sha256_hex` - The SHA256 hash of the file being shared
+/// * `share_id` - The unique share identifier (UUID)
+/// * `timestamp` - ISO 8601 timestamp when the share was created
+/// * `private_key_hex` - The hex-encoded secp256k1 private key of the owner
+///
+/// # Returns
+/// Hex-encoded DER signature
+pub fn generate_share_signature(
+    file_sha256_hex: &str,
+    share_id: &str,
+    timestamp: &str,
+    private_key_hex: &str,
+) -> Result<String> {
+    use sha2::{Digest, Sha256};
+
+    // Create the message to sign: SHA256(file_hash + share_id + timestamp)
+    let mut hasher = Sha256::new();
+    hasher.update(file_sha256_hex.as_bytes());
+    hasher.update(share_id.as_bytes());
+    hasher.update(timestamp.as_bytes());
+    let message_hash = hasher.finalize();
+    let message_hash_hex = hex::encode(message_hash);
+
+    // Sign the hash
+    sign_event_hash(&message_hash_hex, private_key_hex)
+}
+
+/// Verify a share signature
+///
+/// # Arguments
+/// * `file_sha256_hex` - The SHA256 hash of the file being shared
+/// * `share_id` - The unique share identifier (UUID)
+/// * `timestamp` - ISO 8601 timestamp when the share was created
+/// * `signature_hex` - The hex-encoded DER signature
+/// * `public_key_hex` - The hex-encoded compressed public key
+///
+/// # Returns
+/// `Ok(true)` if signature is valid, `Ok(false)` if invalid, `Err` on parsing errors
+pub fn verify_share_signature(
+    file_sha256_hex: &str,
+    share_id: &str,
+    timestamp: &str,
+    signature_hex: &str,
+    public_key_hex: &str,
+) -> Result<bool> {
+    use sha2::{Digest, Sha256};
+
+    // Recreate the message that was signed
+    let mut hasher = Sha256::new();
+    hasher.update(file_sha256_hex.as_bytes());
+    hasher.update(share_id.as_bytes());
+    hasher.update(timestamp.as_bytes());
+    let message_hash = hasher.finalize();
+    let message_hash_hex = hex::encode(message_hash);
+
+    // Verify the signature
+    verify_event_signature(&message_hash_hex, signature_hex, public_key_hex)
 }
 
 /// Verify a complete event's integrity and signature
@@ -1083,10 +1423,6 @@ mod tests {
                 new_owner_sig_hex: None,
             },
             ots_proof_b64: "AAA...".to_string(),
-            verified_chain: None,
-            verified_timestamp: None,
-            verified_height: None,
-            last_verified_at: None,
         };
 
         // Verify complete event
@@ -1145,10 +1481,6 @@ mod tests {
                 new_owner_sig_hex: None,
             },
             ots_proof_b64: "AAA...".to_string(),
-            verified_chain: None,
-            verified_timestamp: None,
-            verified_height: None,
-            last_verified_at: None,
         };
 
         // Verification should fail

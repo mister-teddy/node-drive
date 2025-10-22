@@ -145,7 +145,42 @@ impl Server {
         let method = req.method().clone();
         let query = req.uri().query().unwrap_or_default();
 
-        // Check for internal routes first (these should not require path prefix)
+        // Check for share routes first (public access to shared files)
+        // Routes like /share/<id> or /share/<id>/chain
+        if uri_path.starts_with("/share/") {
+            let share_path = uri_path.trim_start_matches("/share/");
+
+            if method == Method::GET || method == Method::HEAD {
+                if let Some(share_id) = share_path.split('/').next() {
+                    if share_path.ends_with("/chain") {
+                        // GET /share/<id>/chain - distribution chain
+                        provenance_handlers::handle_distribution_chain(
+                            share_id,
+                            &self.provenance_db,
+                            &mut res,
+                        )
+                        .await?;
+                        return Ok(res);
+                    } else if share_id == share_path {
+                        // GET /share/<id> - download shared file
+                        let head_only = method == Method::HEAD;
+                        provenance_handlers::handle_shared_file_access(
+                            share_id,
+                            head_only,
+                            &self.provenance_db,
+                            &mut res,
+                        )
+                        .await?;
+                        return Ok(res);
+                    }
+                }
+            }
+            // If we reach here, the share route was malformed
+            status_not_found(&mut res);
+            return Ok(res);
+        }
+
+        // Check for internal routes (these should not require path prefix)
         // Health check and other __dufs__ routes are always accessible
         if uri_path.contains("__dufs__") {
             // Strip the uri_prefix to get the actual internal path
@@ -180,6 +215,8 @@ impl Server {
             || query.contains("manifest=")
             || query.contains("verify")
             || query.contains("download")
+            || query.contains("share")
+            || query.contains("share_info")
             || (has_search && has_simple); // search with simple returns plain text
 
         // If the request is not for the API and doesn't have special query params,
@@ -400,6 +437,13 @@ impl Server {
                             &mut res,
                         )
                         .await?;
+                    } else if has_query_flag(&query_params, "share_info") {
+                        provenance_handlers::handle_share_info(
+                            path,
+                            &self.provenance_db,
+                            &mut res,
+                        )
+                        .await?;
                     } else {
                         self.handle_send_file(path, headers, head_only, &mut res)
                             .await?;
@@ -446,6 +490,18 @@ impl Server {
                         )
                         .await?;
                     }
+                } else if has_query_flag(&query_params, "share") {
+                    if is_miss || is_dir {
+                        status_not_found(&mut res);
+                    } else {
+                        provenance_handlers::handle_create_share(
+                            path,
+                            user,
+                            &self.provenance_db,
+                            &mut res,
+                        )
+                        .await?;
+                    }
                 } else {
                     *res.status_mut() = StatusCode::METHOD_NOT_ALLOWED;
                 }
@@ -478,7 +534,16 @@ impl Server {
                 }
             }
             Method::DELETE => {
-                if !allow_delete {
+                // Check if this is a share deletion
+                if let Some(share_id) = query_params.get("share") {
+                    provenance_handlers::handle_delete_share(
+                        share_id,
+                        user,
+                        &self.provenance_db,
+                        &mut res,
+                    )
+                    .await?;
+                } else if !allow_delete {
                     status_forbid(&mut res);
                 } else if !is_miss {
                     self.handle_delete(path, is_dir, &mut res).await?
@@ -1504,10 +1569,6 @@ impl Server {
             event_hash_hex: event_hash_hex.clone(),
             signatures: signatures.clone(),
             ots_proof_b64: ots_proof_b64.clone(),
-            verified_chain: None,
-            verified_timestamp: None,
-            verified_height: None,
-            last_verified_at: None,
         };
 
         match verify_event(&created_event) {

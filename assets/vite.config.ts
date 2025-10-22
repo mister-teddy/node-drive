@@ -11,7 +11,7 @@ export default defineConfig({
   build: {
     outDir: './dist',
     emptyOutDir: true,
-    sourcemap: false, // Disable source maps in production for smaller bundle
+    sourcemap: true,
     minify: 'esbuild', // Use esbuild for faster minification (Vite default)
     target: 'es2015', // Target modern browsers for smaller bundle
     rollupOptions: {
@@ -27,6 +27,8 @@ export default defineConfig({
           }
           return 'assets/[name]-[hash][extname]';
         },
+        // Include original source content in sourcemaps
+        sourcemapExcludeSources: false,
         // Manually chunk vendor libraries for better caching
         manualChunks: (id) => {
           if (id.includes('node_modules')) {
