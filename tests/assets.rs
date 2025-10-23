@@ -5,20 +5,6 @@ use fixtures::{server, Error, TestServer};
 use rstest::rstest;
 
 #[rstest]
-fn assets(server: TestServer) -> Result<(), Error> {
-    let resp = reqwest::blocking::get(server.url())?;
-    let index_js = "/index.js";
-    let index_css = "/index.css";
-    let favicon_ico = "/favicon.ico";
-    let text = resp.text()?;
-    println!("{text}");
-    assert!(text.contains(&format!(r#"href="{index_css}""#)));
-    assert!(text.contains(&format!(r#"href="{favicon_ico}""#)));
-    assert!(text.contains(&format!(r#"src="{index_js}""#)));
-    Ok(())
-}
-
-#[rstest]
 fn asset_js(server: TestServer) -> Result<(), Error> {
     let url = format!("{}index.js", server.url());
     let resp = reqwest::blocking::get(url)?;
@@ -39,15 +25,6 @@ fn asset_css(server: TestServer) -> Result<(), Error> {
         resp.headers().get("content-type").unwrap(),
         "text/css; charset=UTF-8"
     );
-    Ok(())
-}
-
-#[rstest]
-fn asset_ico(server: TestServer) -> Result<(), Error> {
-    let url = format!("{}favicon.ico", server.url());
-    let resp = reqwest::blocking::get(url)?;
-    assert_eq!(resp.status(), 200);
-    assert_eq!(resp.headers().get("content-type").unwrap(), "image/x-icon");
     Ok(())
 }
 

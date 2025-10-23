@@ -57,6 +57,9 @@ interface Manifest {
   type?: string;
   artifact?: {
     sha256_hex: string;
+    verified_chain?: string;
+    verified_timestamp?: number;
+    verified_height?: number;
   };
   events?: ProvenanceEvent[];
 }
@@ -66,12 +69,14 @@ interface ProvenanceProps {
   defaultMode?: "full" | "summary";
   isDir?: boolean;
   stampStatus?: StampStatus | string;
+  shareId?: string;
 }
 
 export default function Provenance({
   fileName,
   isDir = false,
   stampStatus,
+  shareId,
 }: ProvenanceProps) {
   const [manifest, setManifest] = useState<Manifest | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -86,7 +91,8 @@ export default function Provenance({
   } | null>(null);
   const [isLoadingOtsInfo, setIsLoadingOtsInfo] = useState(false);
   const isPending =
-    typeof stampStatus === "string" || (stampStatus && !stampStatus.success);
+    (typeof stampStatus === "string" || (stampStatus && !stampStatus.success)) &&
+    !manifest?.artifact?.verified_timestamp;
 
   // Spring animation for card flip
   const { transform } = useSpring({
@@ -121,7 +127,10 @@ export default function Provenance({
     setIsLoading(true);
 
     try {
-      const url = apiPath(fileName) + "?manifest=json";
+      // Use share endpoint if shareId is provided, otherwise use regular file endpoint
+      const url = shareId
+        ? `/share/${shareId}/manifest`
+        : apiPath(fileName) + "?manifest=json";
       const response = await fetch(url);
 
       if (response.ok) {
@@ -146,7 +155,10 @@ export default function Provenance({
     setIsLoadingOtsInfo(true);
 
     try {
-      const url = apiPath(fileName) + "?ots-info";
+      // Use share endpoint if shareId is provided, otherwise use regular file endpoint
+      const url = shareId
+        ? `/share/${shareId}/ots-info`
+        : apiPath(fileName) + "?ots-info";
       const response = await fetch(url);
 
       if (response.ok) {
@@ -308,7 +320,7 @@ export default function Provenance({
         key: "bitcoin",
         label: (
           <Space size={8}>
-            {stampStatusObj?.success ? (
+            {stampStatusObj?.success || manifest.artifact?.verified_timestamp ? (
               <CheckCircleOutlined style={{ color: "#52c41a" }} />
             ) : (
               <ClockCircleOutlined style={{ color: "#fa8c16" }} />
@@ -317,9 +329,17 @@ export default function Provenance({
           </Space>
         ),
         children:
-          stampStatusObj?.success && stampStatusObj.results
+          (stampStatusObj?.success && stampStatusObj.results)
             ? `Verified ${new Date(
                 stampStatusObj.results.bitcoin.timestamp * 1000
+              ).toLocaleDateString("en-US", {
+                month: "short",
+                day: "numeric",
+                year: "numeric",
+              })}`
+            : manifest.artifact?.verified_timestamp
+            ? `Verified ${new Date(
+                manifest.artifact.verified_timestamp * 1000
               ).toLocaleDateString("en-US", {
                 month: "short",
                 day: "numeric",
@@ -461,15 +481,19 @@ export default function Provenance({
             },
           ]
         : []),
-      ...(stampStatusObj
+      ...(stampStatusObj || manifest.artifact?.verified_height
         ? [
             {
               key: "bitcoin",
               label: "Bitcoin Block",
               children:
-                stampStatusObj.success && stampStatusObj.results ? (
+                (stampStatusObj?.success && stampStatusObj.results) ? (
                   <Tag color="success" icon={<CheckCircleOutlined />}>
                     Block #{stampStatusObj.results.bitcoin.height}
+                  </Tag>
+                ) : manifest.artifact?.verified_height ? (
+                  <Tag color="success" icon={<CheckCircleOutlined />}>
+                    Block #{manifest.artifact.verified_height}
                   </Tag>
                 ) : (
                   <Tag color="warning" icon={<ClockCircleOutlined />}>

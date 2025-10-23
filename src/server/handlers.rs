@@ -146,12 +146,14 @@ impl Server {
         let query = req.uri().query().unwrap_or_default();
 
         // Check for share routes first (public access to shared files)
-        // Routes like /share/<id> or /share/<id>/chain
+        // Routes like /share/<id>, /share/<id>/download, /share/<id>/info, /share/<id>/chain
         if uri_path.starts_with("/share/") {
             let share_path = uri_path.trim_start_matches("/share/");
 
             if method == Method::GET || method == Method::HEAD {
                 if let Some(share_id) = share_path.split('/').next() {
+                    let head_only = method == Method::HEAD;
+
                     if share_path.ends_with("/chain") {
                         // GET /share/<id>/chain - distribution chain
                         provenance_handlers::handle_distribution_chain(
@@ -161,10 +163,9 @@ impl Server {
                         )
                         .await?;
                         return Ok(res);
-                    } else if share_id == share_path {
-                        // GET /share/<id> - download shared file
-                        let head_only = method == Method::HEAD;
-                        provenance_handlers::handle_shared_file_access(
+                    } else if share_path.ends_with("/download") {
+                        // GET /share/<id>/download - download shared file
+                        provenance_handlers::handle_shared_file_download(
                             share_id,
                             head_only,
                             &self.provenance_db,
@@ -172,12 +173,48 @@ impl Server {
                         )
                         .await?;
                         return Ok(res);
+                    } else if share_path.ends_with("/info") {
+                        // GET /share/<id>/info - get share metadata
+                        provenance_handlers::handle_share_metadata(
+                            share_id,
+                            &self.provenance_db,
+                            &mut res,
+                        )
+                        .await?;
+                        return Ok(res);
+                    } else if share_path.ends_with("/manifest") {
+                        // GET /share/<id>/manifest - get provenance manifest
+                        provenance_handlers::handle_share_manifest(
+                            share_id,
+                            &self.provenance_db,
+                            &mut res,
+                        )
+                        .await?;
+                        return Ok(res);
+                    } else if share_path.ends_with("/ots-info") {
+                        // GET /share/<id>/ots-info - get OTS info
+                        provenance_handlers::handle_share_ots_info(
+                            share_id,
+                            &self.provenance_db,
+                            &mut res,
+                        )
+                        .await?;
+                        return Ok(res);
+                    } else if share_id == share_path {
+                        // GET /share/<id> - serve SPA page for share viewer
+                        // This will fall through to normal index.html serving
+                        // The React app will handle the /share/:id route
+                        // We intentionally do NOT return here, let it continue to SPA serving
+                    } else {
+                        // Unknown share sub-route
+                        status_not_found(&mut res);
+                        return Ok(res);
                     }
                 }
             }
-            // If we reach here, the share route was malformed
-            status_not_found(&mut res);
-            return Ok(res);
+
+            // If we haven't returned yet and path is /share/<id>,
+            // it means we want to serve the SPA (continue processing)
         }
 
         // Check for internal routes (these should not require path prefix)
@@ -220,9 +257,30 @@ impl Server {
             || (has_search && has_simple); // search with simple returns plain text
 
         // If the request is not for the API and doesn't have special query params,
-        // treat it as a public asset request and serve from assets/dist (or fallback
-        // to assets/dist/index.html). All application logic remains under /api/*.
-        if !uri_path.starts_with(api_prefix_str) && !requires_server_processing {
+        // serve SPA assets and handle client-side routing for the SPA.
+        // Only do this for GET/HEAD requests - other methods (WebDAV, etc.) should
+        // continue to normal request handling.
+        //
+        // Serve SPA for:
+        // - Root path "/"
+        // - Share routes "/share/:id"
+        // - Actual asset files "/assets/*", "/chunks/*", etc.
+        //
+        // DO NOT serve SPA for file paths that should be served from the filesystem
+        // (these have extensions and are not in the assets/chunks directories).
+        let is_spa_route = uri_path == "/"
+            || uri_path == ""
+            || uri_path.starts_with("/share/")
+            || uri_path.starts_with("/assets/")
+            || uri_path.starts_with("/chunks/")
+            || uri_path.ends_with(".js")
+            || uri_path.ends_with(".css")
+            || (!uri_path.contains('.') && !uri_path.starts_with(api_prefix_str));
+
+        if !uri_path.starts_with(api_prefix_str)
+            && !requires_server_processing
+            && (method == Method::GET || method == Method::HEAD)
+            && is_spa_route {
             // handle_public will always return Ok(true) after writing a response
             // (either the asset or a 404). If it returns Ok(true), we return the
             // response immediately.
@@ -1189,6 +1247,21 @@ impl Server {
         access_paths: AccessPaths,
     ) -> Result<Vec<PathItem>> {
         let mut paths: Vec<PathItem> = vec![];
+
+        // Add ".." parent directory link if we're in a subdirectory
+        if entry_path != self.args.serve_path && entry_path != base_path {
+            use crate::server::path_item::PathType;
+
+            let parent_item = PathItem {
+                path_type: PathType::Dir,
+                name: "..".to_string(),
+                mtime: 0,
+                size: 0,
+                stamp_status: None,
+            };
+            paths.push(parent_item);
+        }
+
         if access_paths.perm().indexonly() {
             for name in access_paths.child_names() {
                 let entry_path = entry_path.join(name);

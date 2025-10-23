@@ -9,7 +9,7 @@ use std::sync::{Arc, Mutex};
 pub const SERVER_PRIVATE_KEY_HEX: &str =
     "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
 pub const SERVER_PUBLIC_KEY_HEX: &str =
-    "02506bc1dc099358e5137292f4efdd57e400f29ba5132aa5d12b18dac1c1f6aaba";
+    "03a34b99f22c790c4e36b2b3c2c35a36db06226e41c692fc82b8b56ac1c540c5bd";
 
 /// Provenance manifest following provenance.manifest/v1 spec
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -34,20 +34,6 @@ pub struct Artifact {
     pub verified_height: Option<u64>,
     #[serde(skip)]
     pub last_check_at: Option<String>,
-}
-
-impl Artifact {
-    /// Create artifact from file path and hash
-    pub fn new(file_path: PathBuf, sha256_hex: String) -> Self {
-        Self {
-            file_path,
-            sha256_hex,
-            verified_chain: None,
-            verified_timestamp: None,
-            verified_height: None,
-            last_check_at: None,
-        }
-    }
 }
 
 /// Provenance event following provenance.event/v1 spec
@@ -551,13 +537,7 @@ impl ProvenanceDb {
                  verified_height = ?3,
                  last_check_at = ?4
              WHERE id = ?5",
-            params![
-                chain,
-                timestamp,
-                height as i64,
-                now,
-                artifact_id
-            ],
+            params![chain, timestamp, height as i64, now, artifact_id],
         )?;
 
         Ok(())
@@ -606,13 +586,7 @@ impl ProvenanceDb {
                  verified_height = ?3,
                  last_check_at = ?4
              WHERE id = ?5",
-            params![
-                chain,
-                timestamp,
-                height as i64,
-                now,
-                artifact_id
-            ],
+            params![chain, timestamp, height as i64, now, artifact_id],
         )?;
 
         tx.commit()?;
@@ -984,7 +958,10 @@ pub fn verify_event_signature(
     // Verify signature
     match secp.verify_ecdsa(&message, &signature, &public_key) {
         Ok(_) => Ok(true),
-        Err(_) => Ok(false),
+        Err(e) => {
+            eprintln!("Failed to verify ECDSA signature: {}", e);
+            Ok(false)
+        }
     }
 }
 

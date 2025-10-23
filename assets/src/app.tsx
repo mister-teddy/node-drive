@@ -1,11 +1,12 @@
 import { Suspense, useEffect } from "react";
 import { Flex, Layout, Typography, Spin, Modal, Input } from "antd";
-import { useLocation, useNavigate } from "react-router-dom";
+import { useLocation, useNavigate, Routes, Route } from "react-router-dom";
 import { useAtomValue, useSetAtom } from "jotai";
 import FilesTable from "./components/files-table";
 import { Header } from "./components/layout/header";
 import { Breadcrumb } from "./components/layout/breadcrumb";
 import UppyUploader from "./components/uppy-uploader";
+import SharePage from "./components/share-page";
 import { filePickerTriggerAtom } from "./store/uppyStore";
 import { apiPath } from "./utils";
 import { currentLocationAtom, dataAtom, metadataAtom, authAtom, permissionsAtom } from "./state";
@@ -82,90 +83,101 @@ function AppContent() {
   };
 
   return (
-    <Layout style={{ minHeight: "100vh", background: "#f5f5f5" }}>
-      <Header
-        auth={auth.auth}
-        user={auth.user}
-        allowUpload={permissions.allow_upload}
-        allowSearch={permissions.allow_search}
-        onSearch={(query: string) => {
-          const href = location.pathname;
-          navigate(query ? `${href}?q=${query}` : href);
-        }}
-        onLogin={async () => {
-          try {
-            await checkAuth("login");
-          } catch {}
-          refreshData();
-        }}
-        onLogout={logout}
-        onNewFolder={() => {
-          let folderName = "";
-          Modal.confirm({
-            title: "Create new folder",
-            content: (
-              <Input
-                placeholder="Enter folder name"
-                onChange={(e) => {
-                  folderName = e.target.value;
-                }}
-                onPressEnter={() => {
-                  Modal.destroyAll();
-                  if (folderName.trim()) createFolder(folderName.trim());
-                }}
-                autoFocus
-              />
-            ),
-            okText: "Create",
-            cancelText: "Cancel",
-            onOk: () => {
-              if (folderName.trim()) {
-                createFolder(folderName.trim());
+    <Routes>
+      {/* Share page route */}
+      <Route path="/share/:shareId" element={<SharePage />} />
+
+      {/* Main file browser route */}
+      <Route
+        path="*"
+        element={
+          <Layout style={{ minHeight: "100vh", background: "#f5f5f5" }}>
+            <Header
+              auth={auth.auth}
+              user={auth.user}
+              allowUpload={permissions.allow_upload}
+              allowSearch={permissions.allow_search}
+              onSearch={(query: string) => {
+                const href = location.pathname;
+                navigate(query ? `${href}?q=${query}` : href);
+              }}
+              onLogin={async () => {
+                try {
+                  await checkAuth("login");
+                } catch {}
+                refreshData();
+              }}
+              onLogout={logout}
+              onNewFolder={() => {
+                let folderName = "";
+                Modal.confirm({
+                  title: "Create new folder",
+                  content: (
+                    <Input
+                      placeholder="Enter folder name"
+                      onChange={(e) => {
+                        folderName = e.target.value;
+                      }}
+                      onPressEnter={() => {
+                        Modal.destroyAll();
+                        if (folderName.trim()) createFolder(folderName.trim());
+                      }}
+                      autoFocus
+                    />
+                  ),
+                  okText: "Create",
+                  cancelText: "Cancel",
+                  onOk: () => {
+                    if (folderName.trim()) {
+                      createFolder(folderName.trim());
+                    }
+                  },
+                });
+              }}
+              onNewFile={() => {
+                if (filePickerTrigger) {
+                  filePickerTrigger();
+                }
+              }}
+            />
+
+            <Content style={{ padding: "0", position: "relative" }}>
+              <Flex justify="space-between" align="center" gap="16px">
+                <Breadcrumb href={metadata.href} uriPrefix={metadata.uri_prefix} />
+                <Typography.Text type="secondary" style={{ padding: "0 24px" }}>
+                  Drop files anywhere to upload
+                </Typography.Text>
+              </Flex>
+
+              {metadata.kind === "Index" && (
+                <>
+                  <FilesTable />
+                  {permissions.allow_upload && (
+                    <UppyUploader
+                      auth={auth.auth}
+                      onAuthRequired={async () => {
+                        await checkAuth();
+                      }}
+                    />
+                  )}
+                </>
+              )}
+            </Content>
+
+            <style>{`
+              @keyframes loadingBar {
+                0% {
+                  transform: translateX(-100%);
+                }
+                100% {
+                  transform: translateX(100%);
+                }
               }
-            },
-          });
-        }}
-        onNewFile={() => {
-          if (filePickerTrigger) {
-            filePickerTrigger();
-          }
-        }}
-      />
-
-      <Content style={{ padding: "0", position: "relative" }}>
-        <Flex justify="space-between" align="center" gap="16px">
-          <Breadcrumb href={metadata.href} uriPrefix={metadata.uri_prefix} />
-          <Typography.Text type="secondary" style={{ padding: "0 24px" }}>
-            Drop files anywhere to upload
-          </Typography.Text>
-        </Flex>
-
-        {metadata.kind === "Index" && (
-          <>
-            <FilesTable />
-            {permissions.allow_upload && (
-              <UppyUploader
-                auth={auth.auth}
-                onAuthRequired={async () => {
-                  await checkAuth();
-                }}
-              />
-            )}
-          </>
-        )}
-      </Content>
-
-      <style>{`
-        @keyframes loadingBar {
-          0% {
-            transform: translateX(-100%);
-          }
-          100% {
-            transform: translateX(100%);
-          }
+            `}</style>
+          </Layout>
         }
-      `}</style>
-    </Layout>
+      />
+    </Routes>
   );
 }
 

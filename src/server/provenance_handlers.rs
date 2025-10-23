@@ -137,12 +137,12 @@ pub async fn handle_ots_download(
     Ok(())
 }
 
-pub async fn handle_ots_info(
+/// Helper function to generate OTS info for a file path
+/// Used by both regular file handler and share handler
+async fn get_ots_info_for_path(
     path: &Path,
-    head_only: bool,
     provenance_db: &ProvenanceDb,
-    res: &mut Response,
-) -> Result<()> {
+) -> Result<crate::ots_stamper::OtsInfo> {
     use crate::ots_stamper;
 
     // Get artifact and manifest from database using unified utility
@@ -150,8 +150,7 @@ pub async fn handle_ots_info(
         match provenance_utils::get_artifact_by_path(provenance_db, path).await? {
             Some(result) => result,
             None => {
-                status_not_found(res);
-                return Ok(());
+                return Err(anyhow!("Artifact not found"));
             }
         };
 
@@ -159,15 +158,13 @@ pub async fn handle_ots_info(
     let manifest = match provenance_utils::get_manifest_for_file(provenance_db, path).await? {
         Some(m) => m,
         None => {
-            status_not_found(res);
-            return Ok(());
+            return Err(anyhow!("Manifest not found"));
         }
     };
 
     // Get the latest event's OTS proof
     if manifest.events.is_empty() {
-        status_not_found(res);
-        return Ok(());
+        return Err(anyhow!("No events in manifest"));
     }
 
     let event_index = manifest.events.len().saturating_sub(1) as u32;
@@ -222,11 +219,25 @@ pub async fn handle_ots_info(
     }
 
     // Generate OTS info from the (possibly upgraded) proof
-    let ots_info = match ots_stamper::generate_ots_info(&ots_proof_b64) {
+    ots_stamper::generate_ots_info(&ots_proof_b64)
+}
+
+pub async fn handle_ots_info(
+    path: &Path,
+    head_only: bool,
+    provenance_db: &ProvenanceDb,
+    res: &mut Response,
+) -> Result<()> {
+    // Use shared helper function
+    let ots_info = match get_ots_info_for_path(path, provenance_db).await {
         Ok(info) => info,
         Err(e) => {
-            *res.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
-            *res.body_mut() = body_full(format!("Failed to parse OTS proof: {}", e));
+            if e.to_string().contains("not found") {
+                status_not_found(res);
+            } else {
+                *res.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
+                *res.body_mut() = body_full(format!("Failed to get OTS info: {}", e));
+            }
             return Ok(());
         }
     };
@@ -601,8 +612,8 @@ pub async fn handle_create_share(
     Ok(())
 }
 
-/// Handle shared file access (GET /share/<id>)
-pub async fn handle_shared_file_access(
+/// Handle shared file download (GET /share/<id>/download)
+pub async fn handle_shared_file_download(
     share_id: &str,
     head_only: bool,
     provenance_db: &ProvenanceDb,
@@ -687,6 +698,132 @@ pub async fn handle_shared_file_access(
     }
 
     *res.body_mut() = body_full(file_data);
+    Ok(())
+}
+
+/// Handle share metadata request (GET /share/<id>/info)
+pub async fn handle_share_metadata(
+    share_id: &str,
+    provenance_db: &ProvenanceDb,
+    res: &mut Response,
+) -> Result<()> {
+    // Get share info from database
+    let share_info = match provenance_db.get_share(share_id)? {
+        Some(info) => info,
+        None => {
+            status_not_found(res);
+            return Ok(());
+        }
+    };
+
+    // Check if share is active
+    if !share_info.is_active {
+        status_not_found(res);
+        return Ok(());
+    }
+
+    // Return share info as JSON
+    let json_response = serde_json::to_string_pretty(&share_info)?;
+
+    res.headers_mut().insert(
+        CONTENT_TYPE,
+        HeaderValue::from_static("application/json"),
+    );
+    res.headers_mut().insert(
+        CONTENT_LENGTH,
+        format!("{}", json_response.len()).parse()?,
+    );
+
+    *res.body_mut() = body_full(json_response);
+    Ok(())
+}
+
+/// Handle share manifest request (GET /share/<id>/manifest)
+pub async fn handle_share_manifest(
+    share_id: &str,
+    provenance_db: &ProvenanceDb,
+    res: &mut Response,
+) -> Result<()> {
+    // Get share info from database
+    let share_info = match provenance_db.get_share(share_id)? {
+        Some(info) => info,
+        None => {
+            status_not_found(res);
+            return Ok(());
+        }
+    };
+
+    // Check if share is active
+    if !share_info.is_active {
+        status_not_found(res);
+        return Ok(());
+    }
+
+    // Get the file path
+    let file_path = Path::new(&share_info.file_path);
+
+    // Get manifest using unified utility function (same as regular files)
+    match provenance_utils::get_manifest_for_file(provenance_db, file_path).await? {
+        Some(manifest) => {
+            let json = serde_json::to_string_pretty(&manifest)?;
+            res.headers_mut().insert(
+                CONTENT_TYPE,
+                HeaderValue::from_static("application/json"),
+            );
+            res.headers_mut().insert(
+                CONTENT_LENGTH,
+                format!("{}", json.len()).parse()?,
+            );
+            *res.body_mut() = body_full(json);
+            Ok(())
+        }
+        None => {
+            status_not_found(res);
+            Ok(())
+        }
+    }
+}
+
+/// Handle share OTS info request (GET /share/<id>/ots-info)
+pub async fn handle_share_ots_info(
+    share_id: &str,
+    provenance_db: &ProvenanceDb,
+    res: &mut Response,
+) -> Result<()> {
+    // Get share info from database
+    let share_info = match provenance_db.get_share(share_id)? {
+        Some(info) => info,
+        None => {
+            status_not_found(res);
+            return Ok(());
+        }
+    };
+
+    // Check if share is active
+    if !share_info.is_active {
+        status_not_found(res);
+        return Ok(());
+    }
+
+    // Get the file path
+    let file_path = Path::new(&share_info.file_path);
+
+    // Use shared helper function (same as regular files)
+    let ots_info = match get_ots_info_for_path(file_path, provenance_db).await {
+        Ok(info) => info,
+        Err(_) => {
+            status_not_found(res);
+            return Ok(());
+        }
+    };
+
+    // Return JSON response
+    let json = serde_json::to_string_pretty(&ots_info)?;
+    res.headers_mut()
+        .typed_insert(ContentType::from(mime_guess::mime::APPLICATION_JSON));
+    res.headers_mut()
+        .typed_insert(ContentLength(json.len() as u64));
+    *res.body_mut() = body_full(json);
     Ok(())
 }
 
