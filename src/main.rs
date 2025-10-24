@@ -29,8 +29,6 @@ use hyper_util::{
     server::conn::auto::Builder,
     service::TowerToHyperService,
 };
-use tower::ServiceBuilder;
-use tower_http::compression::CompressionLayer;
 use std::net::{IpAddr, SocketAddr, TcpListener as StdTcpListener};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -41,6 +39,8 @@ use tokio::time::timeout;
 use tokio::{net::TcpListener, task::JoinHandle};
 #[cfg(feature = "tls")]
 use tokio_rustls::{rustls::ServerConfig, TlsAcceptor};
+use tower::ServiceBuilder;
+use tower_http::compression::CompressionLayer;
 
 #[tokio::main]
 async fn main() -> Result<()> {

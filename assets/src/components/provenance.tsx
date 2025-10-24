@@ -155,7 +155,7 @@ export default function Provenance({
       (!manifest || !manifest.events || manifest.events.length === 0)
     ) {
       return (
-        <Text type="secondary" style={{ fontSize: 11 }}>
+        <Text type="secondary" className="text-[11px]">
           —
         </Text>
       );
@@ -164,53 +164,98 @@ export default function Provenance({
     const stampStatusObj = typeof stampStatus === "string" ? null : stampStatus;
 
     return (
-      <div
-        onClick={handleModalOpen}
-        style={{
-          cursor: "pointer",
-        }}
-      >
-        <Tag
-          icon={
-            isLoading ? (
-              <Spin className="anticon" />
-            ) : isPending ? (
-              <ClockCircleOutlined style={{ fontSize: 20 }} />
-            ) : (
-              <SafetyCertificateOutlined style={{ fontSize: 20 }} />
-            )
-          }
-          color={isPending ? "warning" : "success"}
+      <div onClick={handleModalOpen} className="inline-block cursor-pointer">
+        <div
+          className={`relative px-4 py-3 rounded border-4 transition-all hover:scale-105 hover:shadow-lg min-w-[140px] ${
+            isPending
+              ? "bg-orange-50 border-orange-400 shadow-orange-200"
+              : "bg-green-50 border-green-500 shadow-green-200"
+          }`}
           style={{
-            fontSize: "11px",
-            padding: "4px 8px",
-            display: "inline-flex",
-            alignItems: "center",
-            gap: "4px",
+            borderStyle: "double",
+            boxShadow: isPending
+              ? "0 4px 12px rgba(250, 140, 22, 0.3)"
+              : "0 4px 12px rgba(82, 196, 26, 0.3)",
           }}
         >
+          {/* Corner decorations for stamp effect */}
           <div
+            className="absolute top-1 left-1 w-2 h-2 border-t-2 border-l-2"
             style={{
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "flex-start",
+              borderColor: isPending ? "#fa8c16" : "#52c41a",
             }}
-          >
-            <Text strong style={{ fontSize: "10px", color: "inherit" }}>
-              {isPending ? "PENDING" : "VERIFIED"}
+          />
+          <div
+            className="absolute top-1 right-1 w-2 h-2 border-t-2 border-r-2"
+            style={{
+              borderColor: isPending ? "#fa8c16" : "#52c41a",
+            }}
+          />
+          <div
+            className="absolute bottom-1 left-1 w-2 h-2 border-b-2 border-l-2"
+            style={{
+              borderColor: isPending ? "#fa8c16" : "#52c41a",
+            }}
+          />
+          <div
+            className="absolute bottom-1 right-1 w-2 h-2 border-b-2 border-r-2"
+            style={{
+              borderColor: isPending ? "#fa8c16" : "#52c41a",
+            }}
+          />
+
+          <Space direction="vertical" size={2} className="w-full text-center">
+            {/* Bitcoin symbol + icon */}
+            <div
+              className={`text-2xl font-bold ${
+                isPending ? "text-orange-600" : "text-green-600"
+              }`}
+            >
+              {isLoading ? (
+                <Spin />
+              ) : isPending ? (
+                <ClockCircleOutlined />
+              ) : (
+                <SafetyCertificateOutlined />
+              )}
+            </div>
+
+            {/* Bitcoin branding */}
+            <Text
+              strong
+              className={`text-xs ${
+                isPending ? "text-orange-700" : "text-green-700"
+              }`}
+            >
+              ₿ BITCOIN
             </Text>
+
+            {/* Status */}
+            <Tag
+              color={isPending ? "orange" : "green"}
+              className="text-xs font-bold m-0"
+            >
+              {isPending ? "PENDING" : "VERIFIED"}
+            </Tag>
+
+            {/* Block or Hash info */}
             {(stampStatusObj?.sha256_hex || manifest?.artifact?.sha256_hex) && (
-              <Text code style={{ fontSize: "8px", padding: "0 2px" }}>
-                {formatHashShort(
-                  stampStatusObj?.sha256_hex ||
-                    manifest?.artifact?.sha256_hex ||
-                    ""
+              <Text className="text-[10px]! text-gray-600 break-all px-1">
+                {stampStatusObj?.results?.bitcoin ? (
+                  <>Block #{stampStatusObj.results.bitcoin.height}</>
+                ) : (
+                  <>
+                    {formatHashShort(
+                      stampStatusObj?.sha256_hex ||
+                        manifest?.artifact?.sha256_hex ||
+                        ""
+                    )}
+                  </>
                 )}
-                •
               </Text>
             )}
-          </div>
-        </Tag>
+          </Space>
+        </div>
       </div>
     );
   };
@@ -219,9 +264,9 @@ export default function Provenance({
   const renderSimpleSide = () => {
     if (!manifest) {
       return (
-        <div style={{ padding: "40px", textAlign: "center" }}>
+        <div className="p-10 text-center">
           <Spin size="large" />
-          <div style={{ marginTop: 16 }}>
+          <div className="mt-4">
             <Text type="secondary">Loading provenance data...</Text>
           </div>
         </div>
@@ -240,7 +285,7 @@ export default function Provenance({
         key: "integrity",
         label: (
           <Space size={8}>
-            <CheckCircleOutlined style={{ color: "#52c41a" }} />
+            <CheckCircleOutlined className="text-green-500" />
             <span>File Integrity</span>
           </Space>
         ),
@@ -252,7 +297,7 @@ export default function Provenance({
               key: "ownership",
               label: (
                 <Space size={8}>
-                  <CheckCircleOutlined style={{ color: "#52c41a" }} />
+                  <CheckCircleOutlined className="text-green-500" />
                   <span>Ownership</span>
                 </Space>
               ),
@@ -266,9 +311,9 @@ export default function Provenance({
           <Space size={8}>
             {stampStatusObj?.success ||
             manifest.artifact?.verified_timestamp ? (
-              <CheckCircleOutlined style={{ color: "#52c41a" }} />
+              <CheckCircleOutlined className="text-green-500" />
             ) : (
-              <ClockCircleOutlined style={{ color: "#fa8c16" }} />
+              <ClockCircleOutlined className="text-orange-500" />
             )}
             <span>Bitcoin</span>
           </Space>
@@ -296,16 +341,14 @@ export default function Provenance({
 
     return (
       <div
+        className="p-5 cursor-pointer rounded-lg"
         style={{
-          padding: "20px",
-          cursor: "pointer",
           backgroundColor: badgeColor,
           border: `1px solid ${borderColor}`,
-          borderRadius: 8,
         }}
         onClick={() => setIsFlipped(true)}
       >
-        <div style={{ textAlign: "center", marginBottom: 16 }}>
+        <div className="text-center mb-4">
           <Tag
             icon={
               isPending ? (
@@ -315,10 +358,7 @@ export default function Provenance({
               )
             }
             color={isPending ? "warning" : "success"}
-            style={{
-              fontSize: "16px",
-              padding: "6px 12px",
-            }}
+            className="text-base px-3 py-1.5"
           >
             {isPending ? "PENDING" : "VERIFIED"}
           </Tag>
@@ -326,8 +366,8 @@ export default function Provenance({
 
         <Descriptions bordered column={1} items={items} />
 
-        <div style={{ textAlign: "center", marginTop: 12 }}>
-          <Text type="secondary" style={{ fontSize: 11 }}>
+        <div className="text-center mt-3">
+          <Text type="secondary" className="text-[11px]">
             Click for details
           </Text>
         </div>
@@ -339,9 +379,9 @@ export default function Provenance({
   const renderDetailedSide = () => {
     if (!manifest) {
       return (
-        <div style={{ padding: "40px", textAlign: "center" }}>
+        <div className="p-10 text-center">
           <Spin size="large" />
-          <div style={{ marginTop: 16 }}>
+          <div className="mt-4">
             <Text type="secondary">Loading provenance data...</Text>
           </div>
         </div>
@@ -359,17 +399,14 @@ export default function Provenance({
         key: "hash",
         label: "SHA-256 Hash",
         children: (
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <div className="flex items-center gap-2">
             <Text
               code
               onClick={(e) => {
                 e.stopPropagation();
                 toggleHashExpansion("main-hash");
               }}
-              style={{
-                cursor: "pointer",
-                wordBreak: "break-all",
-              }}
+              className="cursor-pointer break-all"
             >
               {formatHashFriendly(hash, expandedHashes["main-hash"])}
             </Text>
@@ -393,17 +430,14 @@ export default function Provenance({
               key: "pubkey",
               label: "Public Key",
               children: (
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <div className="flex items-center gap-2">
                   <Text
                     code
                     onClick={(e) => {
                       e.stopPropagation();
                       toggleHashExpansion("pubkey");
                     }}
-                    style={{
-                      cursor: "pointer",
-                      wordBreak: "break-all",
-                    }}
+                    className="cursor-pointer break-all"
                   >
                     {formatHashFriendly(
                       creatorPubkey,
@@ -460,7 +494,7 @@ export default function Provenance({
                   icon={<DownloadOutlined />}
                   href={`${window.location.pathname}${fileName}?ots`}
                   download
-                  style={{ padding: 0 }}
+                  className="p-0"
                   onClick={(e) => e.stopPropagation()}
                 >
                   Download
@@ -515,13 +549,7 @@ export default function Provenance({
                             children: (
                               <>
                                 {event.actors?.creator_pubkey_hex && (
-                                  <div
-                                    style={{
-                                      display: "flex",
-                                      alignItems: "center",
-                                      gap: 8,
-                                    }}
-                                  >
+                                  <div className="flex items-center gap-2">
                                     <Text
                                       code
                                       onClick={(e) => {
@@ -530,10 +558,7 @@ export default function Provenance({
                                           `actor-creator-${index}`
                                         );
                                       }}
-                                      style={{
-                                        cursor: "pointer",
-                                        wordBreak: "break-all",
-                                      }}
+                                      className="cursor-pointer break-all"
                                     >
                                       Creator PubKey:{" "}
                                       {formatHashFriendly(
@@ -597,12 +622,7 @@ export default function Provenance({
     ];
 
     return (
-      <div
-        style={{
-          cursor: "pointer",
-        }}
-        onClick={() => setIsFlipped(false)}
-      >
+      <div className="cursor-pointer" onClick={() => setIsFlipped(false)}>
         <Tabs
           defaultActiveKey="crypto"
           size="small"
@@ -610,8 +630,8 @@ export default function Provenance({
           onClick={(e) => e.stopPropagation()}
         />
 
-        <div style={{ textAlign: "center", marginTop: 8 }}>
-          <Text type="secondary" style={{ fontSize: 11 }}>
+        <div className="text-center mt-2">
+          <Text type="secondary" className="text-[11px]">
             Click to go back
           </Text>
         </div>

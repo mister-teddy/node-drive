@@ -94,9 +94,9 @@ export default function FilePreviewDrawer({
   const renderPreview = () => {
     if (loading) {
       return (
-        <div style={{ textAlign: "center", padding: "60px 20px" }}>
+        <div className="text-center py-[60px] px-5">
           <Spin size="large" />
-          <div style={{ marginTop: 16 }}>
+          <div className="mt-4">
             <Text type="secondary">Loading preview...</Text>
           </div>
         </div>
@@ -110,7 +110,7 @@ export default function FilePreviewDrawer({
           description={error}
           type="error"
           showIcon
-          style={{ margin: "20px 0" }}
+          className="my-5"
         />
       );
     }
@@ -118,11 +118,11 @@ export default function FilePreviewDrawer({
     // Image preview
     if (isImage) {
       return (
-        <div style={{ textAlign: "center", padding: "20px 0" }}>
+        <div className="text-center py-5">
           <Image
             src={fileUrl}
             alt={fileName || ""}
-            style={{ maxWidth: "100%" }}
+            className="max-w-full"
             preview={{
               mask: "Click to enlarge",
             }}
@@ -136,12 +136,7 @@ export default function FilePreviewDrawer({
       return (
         <iframe
           src={fileUrl}
-          style={{
-            width: "100%",
-            height: "100%",
-            border: "none",
-            borderRadius: "4px",
-          }}
+          className="w-full h-full border-none rounded"
           title={fileName || "PDF Preview"}
         />
       );
@@ -150,25 +145,8 @@ export default function FilePreviewDrawer({
     // Text file preview
     if (isText && content) {
       return (
-        <div
-          style={{
-            backgroundColor: "#f5f5f5",
-            padding: "16px",
-            borderRadius: "4px",
-            border: "1px solid #e8e8e8",
-            overflow: "auto",
-          }}
-        >
-          <pre
-            style={{
-              margin: 0,
-              fontFamily: "monospace",
-              fontSize: "13px",
-              lineHeight: "1.6",
-              whiteSpace: "pre-wrap",
-              wordBreak: "break-word",
-            }}
-          >
+        <div className="bg-gray-100 p-4 rounded border border-gray-200 overflow-auto">
+          <pre className="m-0 font-mono text-[13px] leading-relaxed whitespace-pre-wrap break-words">
             {content}
           </pre>
         </div>
@@ -178,15 +156,11 @@ export default function FilePreviewDrawer({
     // Video preview
     if (isVideo) {
       return (
-        <div style={{ padding: "20px 0" }}>
+        <div className="py-5">
           <video
             src={fileUrl}
             controls
-            style={{
-              width: "100%",
-              borderRadius: "4px",
-              backgroundColor: "#000",
-            }}
+            className="w-full rounded bg-black"
           >
             Your browser does not support the video tag.
           </video>
@@ -197,14 +171,14 @@ export default function FilePreviewDrawer({
     // Audio preview
     if (isAudio) {
       return (
-        <div style={{ padding: "40px 20px", textAlign: "center" }}>
-          <div style={{ marginBottom: 24 }}>
+        <div className="py-10 px-5 text-center">
+          <div className="mb-6">
             <FileOutlined style={{ fontSize: 64, color: "#d9d9d9" }} />
           </div>
           <audio
             src={fileUrl}
             controls
-            style={{ width: "100%", maxWidth: "500px" }}
+            className="w-full max-w-[500px]"
           >
             Your browser does not support the audio tag.
           </audio>
@@ -214,8 +188,8 @@ export default function FilePreviewDrawer({
 
     // Unsupported file type
     return (
-      <div style={{ textAlign: "center", padding: "60px 20px" }}>
-        <div style={{ marginBottom: 24 }}>
+      <div className="text-center py-[60px] px-5">
+        <div className="mb-6">
           {isPdf && (
             <FilePdfOutlined style={{ fontSize: 64, color: "#ff4d4f" }} />
           )}

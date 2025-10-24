@@ -170,47 +170,18 @@ const UppyUploader = ({ auth, onAuthRequired }: UppyUploaderProps) => {
         ref={fileInputRef}
         type="file"
         multiple
-        style={{ display: "none" }}
+        className="hidden"
         onChange={handleFileChange}
       />
 
       {/* Full-screen drag overlay */}
       {isDraggingOver ? (
-        <div
-          style={{
-            position: "fixed",
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            background: "rgba(0, 123, 255, 0.1)",
-            border: "3px dashed #007bff",
-            zIndex: 9998,
-            pointerEvents: "none",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            textAlign: "center",
-            color: "#007bff",
-          }}
-        >
+        <div className="fixed inset-0 bg-blue-500/10 border-[3px] border-dashed border-blue-500 z-[9998] pointer-events-none flex items-center justify-center text-center text-blue-500">
           <h2>Drop files here to upload</h2>
         </div>
       ) : (
         showDashboard && (
-          <div
-            style={{
-              position: "fixed",
-              bottom: "24px",
-              right: "24px",
-              width: "450px",
-              maxWidth: "calc(100vw - 48px)",
-              zIndex: 1000,
-              borderRadius: "12px",
-              boxShadow: "0 8px 32px rgba(0, 0, 0, 0.15)",
-              overflow: "hidden",
-            }}
-          >
+          <div className="fixed bottom-6 right-6 w-[450px] max-w-[calc(100vw-48px)] z-[1000] rounded-xl shadow-[0_8px_32px_rgba(0,0,0,0.15)] overflow-hidden">
             <Dashboard
               uppy={uppy}
               hideProgressAfterFinish={false}

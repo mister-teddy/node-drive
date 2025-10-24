@@ -1,4 +1,4 @@
-import { Alert, Steps, Typography, Spin, Button } from "antd";
+import { Alert, Steps, Typography, Spin, Button, Space } from "antd";
 import type { StepProps } from "antd";
 import {
   CheckCircleOutlined,
@@ -43,7 +43,7 @@ export default function OtsViewer({
 }: OtsViewerProps) {
   if (isLoading) {
     return (
-      <div style={{ textAlign: "center", padding: "20px" }}>
+      <div className="text-center p-5">
         <Spin />
       </div>
     );
@@ -56,7 +56,7 @@ export default function OtsViewer({
         description="No timestamp proof found for this file."
         type="info"
         showIcon
-        style={{ fontSize: 11 }}
+        className="text-[11px]"
       />
     );
   }
@@ -68,7 +68,7 @@ export default function OtsViewer({
   const steps = parseOperationsToSteps(otsInfo.operations, stampStatusObj);
 
   return (
-    <div style={{ fontSize: 12 }}>
+    <Space direction="vertical" className="w-full" size="large">
       {/* Status Alert */}
       {isVerified ? (
         <Alert
@@ -84,7 +84,7 @@ export default function OtsViewer({
           }.`}
           type="success"
           showIcon
-          style={{ fontSize: 12, marginBottom: 16 }}
+          className="text-xs mb-4"
         />
       ) : (
         <Alert
@@ -92,7 +92,7 @@ export default function OtsViewer({
           description="Your file has been submitted for timestamping. The proof will be complete once it's included in a Bitcoin block (usually within a few hours). Once your timestamp is included in a Bitcoin block, you'll see a green checkmark above. The pending calendar servers shown above are collecting timestamps to batch them into the blockchain."
           type="warning"
           showIcon
-          style={{ fontSize: 12, marginBottom: 16 }}
+          className="text-xs mb-4"
         />
       )}
 
@@ -106,13 +106,13 @@ export default function OtsViewer({
 
       {/* Completion percentage for pending */}
       {!isVerified && (
-        <div style={{ marginTop: 16 }}>
-          <Text type="secondary" style={{ fontSize: 11 }}>
+        <div className="mt-4">
+          <Text type="secondary" className="text-[11px]">
             Progress: {calculateCompletionPercentage(otsInfo.operations)}%
           </Text>
         </div>
       )}
-    </div>
+    </Space>
   );
 }
 
@@ -124,40 +124,27 @@ function MerkleTreeOperations({ operations }: { operations: string[] }) {
 
   return (
     <div>
-      <Text type="secondary" style={{ fontSize: 11 }}>
+      <Text type="secondary" className="text-[11px]">
         Combining with other timestamps via hashing
       </Text>
-      <div style={{ marginTop: 4 }}>
+      <div className="mt-1">
         <Button
           type="link"
           size="small"
           onClick={() => setExpanded(!expanded)}
           icon={expanded ? <UpOutlined /> : <DownOutlined />}
-          style={{ padding: 0, fontSize: 10, height: "auto" }}
+          className="p-0 text-[10px] h-auto"
         >
           {operations.length} operations
         </Button>
         {expanded && (
-          <div
-            style={{
-              fontSize: 9,
-              marginTop: 8,
-              maxHeight: "300px",
-              overflow: "auto",
-              background: "#f5f5f5",
-              padding: 8,
-              borderRadius: 4,
-              fontFamily: "monospace",
-            }}
-          >
+          <div className="text-[9px] mt-2 max-h-[300px] overflow-auto bg-gray-100 p-2 rounded font-mono">
             {operations.map((op, idx) => (
               <div
                 key={idx}
-                style={{
-                  padding: "2px 0",
-                  borderBottom:
-                    idx < operations.length - 1 ? "1px solid #e8e8e8" : "none",
-                }}
+                className={`py-0.5 ${
+                  idx < operations.length - 1 ? "border-b border-gray-200" : ""
+                }`}
               >
                 {op}
               </div>
@@ -183,7 +170,7 @@ function parseOperationsToSteps(
   steps.push({
     title: "Your File",
     description: (
-      <Text type="secondary" style={{ fontSize: 11 }}>
+      <Text type="secondary" className="text-[11px]">
         Starting with file's unique fingerprint (SHA-256)
       </Text>
     ),
@@ -219,10 +206,10 @@ function parseOperationsToSteps(
       title: "Calendar Servers",
       description: (
         <div>
-          <Text type="secondary" style={{ fontSize: 11 }}>
+          <Text type="secondary" className="text-[11px]">
             Aggregating timestamps before blockchain submission
           </Text>
-          <div style={{ fontSize: 10, marginTop: 4, color: "#fa8c16" }}>
+          <div className="text-[10px] mt-1 text-[#fa8c16]">
             {pendingOps.map((op, idx) => (
               <div key={idx}>{op.replace("⏳ ", "")}</div>
             ))}
@@ -245,12 +232,12 @@ function parseOperationsToSteps(
         <div>
           {isVerified ? (
             <>
-              <Text type="secondary" style={{ fontSize: 11 }}>
+              <Text type="secondary" className="text-[11px]">
                 Permanently recorded in block #
                 {stampStatus?.results?.bitcoin.height}
               </Text>
               <br />
-              <Text strong style={{ fontSize: 11, color: "#52c41a" }}>
+              <Text strong className="text-[11px] text-[#52c41a]">
                 {new Date(
                   (stampStatus?.results?.bitcoin.timestamp || 0) * 1000
                 ).toLocaleString("en-US", {
@@ -263,7 +250,7 @@ function parseOperationsToSteps(
               </Text>
             </>
           ) : (
-            <Text type="secondary" style={{ fontSize: 11 }}>
+            <Text type="secondary" className="text-[11px]">
               Waiting for inclusion in a Bitcoin block
             </Text>
           )}
@@ -271,7 +258,7 @@ function parseOperationsToSteps(
       ),
       status: isVerified ? "finish" : "wait",
       icon: isVerified ? (
-        <CheckCircleOutlined style={{ color: "#52c41a" }} />
+        <CheckCircleOutlined className="text-[#52c41a]" />
       ) : (
         <SafetyOutlined />
       ),

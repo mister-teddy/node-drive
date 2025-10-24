@@ -134,7 +134,11 @@ impl Server {
             hidden,
             self.args.allow_symlink,
             self.args.serve_path.clone(),
-            move |x| get_file_name(x.path()).to_lowercase().contains(&search_clone),
+            move |x| {
+                get_file_name(x.path())
+                    .to_lowercase()
+                    .contains(&search_clone)
+            },
         ))
         .await?;
 

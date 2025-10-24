@@ -14,7 +14,10 @@ use uuid::Uuid;
 
 use crate::file_utils;
 use crate::http_utils::body_full;
-use crate::provenance::{generate_share_signature, verify_share_signature, ProvenanceDb, SERVER_PRIVATE_KEY_HEX, SERVER_PUBLIC_KEY_HEX};
+use crate::provenance::{
+    generate_share_signature, verify_share_signature, ProvenanceDb, SERVER_PRIVATE_KEY_HEX,
+    SERVER_PUBLIC_KEY_HEX,
+};
 use crate::provenance_utils;
 
 use super::path_item::StampStatus;
@@ -372,17 +375,16 @@ pub async fn compute_stamp_status(
     const CHECK_THROTTLE_MINUTES: i64 = 5;
 
     // Get artifact from database by file path
-    let (artifact_id, artifact) =
-        match provenance_utils::get_artifact_by_path(provenance_db, path)
-            .await
-            .ok()?
-        {
-            Some((id, artifact, _hash)) => (id, artifact),
-            None => {
-                // File not in provenance system yet
-                return None;
-            }
-        };
+    let (artifact_id, artifact) = match provenance_utils::get_artifact_by_path(provenance_db, path)
+        .await
+        .ok()?
+    {
+        Some((id, artifact, _hash)) => (id, artifact),
+        None => {
+            // File not in provenance system yet
+            return None;
+        }
+    };
 
     let sha256_hex = artifact.sha256_hex.clone();
 
@@ -575,11 +577,14 @@ pub async fn handle_create_share(
         SERVER_PUBLIC_KEY_HEX,
         &share_signature,
     ) {
-        Ok(_) => {},
+        Ok(_) => {}
         Err(e) => {
             error!("Failed to create share in database: {}", e);
             *res.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
-            *res.body_mut() = body_full(format!("Database error: {}. Try deleting provenance.db and restarting.", e));
+            *res.body_mut() = body_full(format!(
+                "Database error: {}. Try deleting provenance.db and restarting.",
+                e
+            ));
             return Ok(());
         }
     }
@@ -662,10 +667,8 @@ pub async fn handle_shared_file_download(
     let _ = provenance_db.record_share_download(share_id, None, None, None);
 
     // Serve the file with share metadata in headers
-    res.headers_mut().insert(
-        "X-Share-Id",
-        HeaderValue::from_str(share_id)?,
-    );
+    res.headers_mut()
+        .insert("X-Share-Id", HeaderValue::from_str(share_id)?);
     res.headers_mut().insert(
         "X-Owner-Pubkey",
         HeaderValue::from_str(&share_info.owner_pubkey_hex)?,
@@ -688,10 +691,8 @@ pub async fn handle_shared_file_download(
         HeaderValue::from_static("application/octet-stream"),
     );
     set_content_disposition(res, true, &filename)?;
-    res.headers_mut().insert(
-        CONTENT_LENGTH,
-        format!("{}", file_data.len()).parse()?,
-    );
+    res.headers_mut()
+        .insert(CONTENT_LENGTH, format!("{}", file_data.len()).parse()?);
 
     if head_only {
         return Ok(());
@@ -732,14 +733,10 @@ pub async fn handle_share_metadata(
     // Return share info as JSON
     let json_response = serde_json::to_string_pretty(&share_info)?;
 
-    res.headers_mut().insert(
-        CONTENT_TYPE,
-        HeaderValue::from_static("application/json"),
-    );
-    res.headers_mut().insert(
-        CONTENT_LENGTH,
-        format!("{}", json_response.len()).parse()?,
-    );
+    res.headers_mut()
+        .insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+    res.headers_mut()
+        .insert(CONTENT_LENGTH, format!("{}", json_response.len()).parse()?);
 
     *res.body_mut() = body_full(json_response);
     Ok(())
@@ -773,14 +770,10 @@ pub async fn handle_share_manifest(
     match provenance_utils::get_manifest_for_file(provenance_db, file_path).await? {
         Some(manifest) => {
             let json = serde_json::to_string_pretty(&manifest)?;
-            res.headers_mut().insert(
-                CONTENT_TYPE,
-                HeaderValue::from_static("application/json"),
-            );
-            res.headers_mut().insert(
-                CONTENT_LENGTH,
-                format!("{}", json.len()).parse()?,
-            );
+            res.headers_mut()
+                .insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+            res.headers_mut()
+                .insert(CONTENT_LENGTH, format!("{}", json.len()).parse()?);
             *res.body_mut() = body_full(json);
             Ok(())
         }
@@ -864,9 +857,7 @@ pub async fn handle_share_info(
     let mut share_items = Vec::new();
     for share in shares {
         // Get download count
-        let downloads = provenance_db
-            .get_distribution_chain(&share.share_id)?
-            .len();
+        let downloads = provenance_db.get_distribution_chain(&share.share_id)?.len();
 
         share_items.push(ShareInfoItem {
             share_id: share.share_id.clone(),

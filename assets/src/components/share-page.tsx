@@ -99,15 +99,8 @@ function SharePage() {
 
   if (loading) {
     return (
-      <Layout style={{ minHeight: "100vh", background: "#f5f5f5" }}>
-        <Content
-          style={{
-            display: "flex",
-            justifyContent: "center",
-            alignItems: "center",
-            minHeight: "100vh",
-          }}
-        >
+      <Layout className="min-h-screen bg-gray-100">
+        <Content className="flex justify-center items-center min-h-screen">
           <Spin size="large" tip="Loading share information..." />
         </Content>
       </Layout>
@@ -116,17 +109,9 @@ function SharePage() {
 
   if (error || !shareInfo) {
     return (
-      <Layout style={{ minHeight: "100vh", background: "#f5f5f5" }}>
-        <Content
-          style={{
-            display: "flex",
-            justifyContent: "center",
-            alignItems: "center",
-            minHeight: "100vh",
-            padding: 24,
-          }}
-        >
-          <Card style={{ maxWidth: 600, width: "100%" }}>
+      <Layout className="min-h-screen bg-gray-100">
+        <Content className="flex justify-center items-center min-h-screen p-6">
+          <Card className="max-w-2xl w-full">
             <Result
               status="error"
               title="Share Not Found"
@@ -159,33 +144,22 @@ function SharePage() {
   )}...${shareInfo.owner_pubkey_hex.slice(-16)}`;
 
   return (
-    <Layout style={{ minHeight: "100vh", background: "#f5f5f5" }}>
-      <Content
-        style={{
-          display: "flex",
-          justifyContent: "center",
-          alignItems: "center",
-          minHeight: "100vh",
-          padding: 24,
-        }}
-      >
-        <Card
-          style={{
-            maxWidth: 800,
-            width: "100%",
-          }}
-          styles={{ body: { padding: "32px 24px" } }}
-        >
+    <Layout className="min-h-screen bg-gray-100">
+      <Content className="flex justify-center items-center min-h-screen px-3 py-4">
+        <Card className="max-w-3xl w-full" styles={{ body: { padding: "24px 16px" } }}>
           {/* Header */}
-          <div style={{ textAlign: "center", marginBottom: 32 }}>
-            <FileOutlined
-              style={{ fontSize: 64, color: "#1890ff", marginBottom: 16 }}
-            />
-            <Title level={2} style={{ marginBottom: 8 }}>
+          <div className="text-center mb-6">
+            <FileOutlined className="text-5xl text-blue-500 mb-3" />
+            <Title
+              level={2}
+              className="mb-2 text-xl sm:text-2xl md:text-3xl break-words hyphens-auto"
+            >
               {fileName}
             </Title>
-            <Text type="secondary">Someone shared this file with you</Text>
-            <div style={{ marginTop: 16 }}>
+            <Text type="secondary" className="text-xs sm:text-sm">
+              Someone shared this file with you
+            </Text>
+            <div className="mt-3">
               <Provenance
                 fileName={fileName}
                 defaultMode="summary"
@@ -196,19 +170,25 @@ function SharePage() {
             </div>
           </div>
 
-          <Descriptions column={1} size="small" bordered>
+          <Descriptions
+            column={1}
+            size="small"
+            bordered
+            labelStyle={{ fontSize: "0.75rem" }}
+            contentStyle={{ fontSize: "0.75rem" }}
+          >
             <Descriptions.Item
               label={
-                <Space>
-                  <ClockCircleOutlined />
-                  Shared On
+                <Space size={4}>
+                  <ClockCircleOutlined className="text-xs" />
+                  <span>Shared On</span>
                 </Space>
               }
             >
               {sharedDate}
             </Descriptions.Item>
             <Descriptions.Item label="Share ID">
-              <Text code copyable={{ text: shareInfo.share_id }}>
+              <Text code copyable={{ text: shareInfo.share_id }} className="text-[10px]">
                 {shareInfo.share_id}
               </Text>
             </Descriptions.Item>
@@ -216,23 +196,23 @@ function SharePage() {
               <Text
                 code
                 copyable={{ text: shareInfo.file_sha256_hex }}
-                style={{ fontSize: 12, wordBreak: "break-all" }}
+                className="text-[10px] break-all block"
               >
                 {truncatedHash}
               </Text>
             </Descriptions.Item>
             <Descriptions.Item
               label={
-                <Space>
-                  <KeyOutlined />
-                  Owner Public Key
+                <Space size={4}>
+                  <KeyOutlined className="text-xs" />
+                  <span>Owner Public Key</span>
                 </Space>
               }
             >
               <Text
                 code
                 copyable={{ text: shareInfo.owner_pubkey_hex }}
-                style={{ fontSize: 12, wordBreak: "break-all" }}
+                className="text-[10px] break-all block"
               >
                 {truncatedPubkey}
               </Text>
@@ -240,37 +220,39 @@ function SharePage() {
           </Descriptions>
 
           {/* Footer */}
-          <Divider />
+          <Divider className="my-5" />
 
           {/* Download Action */}
-          <Space direction="vertical" size="large" className="w-full">
-            <Row className="w-full" gutter={16}>
-              <Col span={12}>
+          <Space direction="vertical" size="middle" className="w-full">
+            <Row gutter={[8, 8]} className="w-full">
+              <Col xs={24} sm={12}>
                 <Button
                   size="large"
                   icon={<DollarOutlined />}
                   onClick={handlePayment}
-                  className="w-full"
+                  block
+                  className="h-12"
                 >
                   Pay
                 </Button>
               </Col>
-              <Col span={12}>
+              <Col xs={24} sm={12}>
                 <Button
                   type="primary"
                   size="large"
                   icon={<DownloadOutlined />}
                   onClick={handleDownload}
                   loading={downloading}
-                  className="w-full"
+                  block
+                  className="h-12"
                 >
                   Download
                 </Button>
               </Col>
             </Row>
 
-            <div style={{ textAlign: "center" }}>
-              <Text type="secondary" style={{ fontSize: 12 }}>
+            <div className="text-center py-2">
+              <Text type="secondary" className="text-[10px] sm:text-xs">
                 Secured by{" "}
                 <a
                   href="/"

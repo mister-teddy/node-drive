@@ -315,7 +315,11 @@ fn auth_partial_index(
     #[with(&["--auth", "user:pass@/dir1:rw,/dir2:rw", "--allow-upload", "--allow-delete", "--allow-search", "--allow-archive", "--allow-symlink"])]
     server: TestServer,
 ) -> Result<(), Error> {
-    let resp = send_with_digest_auth(fetch!(b"GET", format!("{}api/", server.url())), "user", "pass")?;
+    let resp = send_with_digest_auth(
+        fetch!(b"GET", format!("{}api/", server.url())),
+        "user",
+        "pass",
+    )?;
     assert_eq!(resp.status(), 200);
     // API now returns JSON directly
     let json: serde_json::Value = resp.json()?;
@@ -385,7 +389,11 @@ fn auth_propfind_dir(
     #[with(&["--auth", "admin:admin@/:rw", "--auth", "user:pass@/dir-assets", "--allow-upload", "--allow-delete", "--allow-search", "--allow-archive", "--allow-symlink"])]
     server: TestServer,
 ) -> Result<(), Error> {
-    let resp = send_with_digest_auth(fetch!(b"PROPFIND", format!("{}api/", server.url())), "user", "pass")?;
+    let resp = send_with_digest_auth(
+        fetch!(b"PROPFIND", format!("{}api/", server.url())),
+        "user",
+        "pass",
+    )?;
     assert_eq!(resp.status(), 207);
     let body = resp.text()?;
     assert!(body.contains("<D:href>/dir-assets/</D:href>"));

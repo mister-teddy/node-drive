@@ -43,7 +43,10 @@ pub async fn handle_move(
         // Update the file_path in the database to reflect the move
         if let Err(e) = db.update_artifact_path(&old_path_str, &new_path_str) {
             // Log the error but don't fail the move operation
-            eprintln!("Warning: Failed to update provenance database for moved file: {}", e);
+            eprintln!(
+                "Warning: Failed to update provenance database for moved file: {}",
+                e
+            );
         }
     }
 
