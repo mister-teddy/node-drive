@@ -708,7 +708,7 @@ pub async fn handle_share_metadata(
     res: &mut Response,
 ) -> Result<()> {
     // Get share info from database
-    let share_info = match provenance_db.get_share(share_id)? {
+    let mut share_info = match provenance_db.get_share(share_id)? {
         Some(info) => info,
         None => {
             status_not_found(res);
@@ -720,6 +720,13 @@ pub async fn handle_share_metadata(
     if !share_info.is_active {
         status_not_found(res);
         return Ok(());
+    }
+
+    // Compute stamp status for the shared file
+    let file_path = Path::new(&share_info.file_path);
+    if let Some(stamp_status) = compute_stamp_status(file_path, provenance_db).await {
+        // Serialize stamp_status to JSON value
+        share_info.stamp_status = Some(serde_json::to_value(stamp_status)?);
     }
 
     // Return share info as JSON

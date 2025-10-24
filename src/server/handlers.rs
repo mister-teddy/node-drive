@@ -275,12 +275,14 @@ impl Server {
             || uri_path.starts_with("/chunks/")
             || uri_path.ends_with(".js")
             || uri_path.ends_with(".css")
+            || uri_path.ends_with(".map")
             || (!uri_path.contains('.') && !uri_path.starts_with(api_prefix_str));
 
         if !uri_path.starts_with(api_prefix_str)
             && !requires_server_processing
             && (method == Method::GET || method == Method::HEAD)
-            && is_spa_route {
+            && is_spa_route
+        {
             // handle_public will always return Ok(true) after writing a response
             // (either the asset or a 404). If it returns Ok(true), we return the
             // response immediately.
@@ -496,12 +498,8 @@ impl Server {
                         )
                         .await?;
                     } else if has_query_flag(&query_params, "share_info") {
-                        provenance_handlers::handle_share_info(
-                            path,
-                            &self.provenance_db,
-                            &mut res,
-                        )
-                        .await?;
+                        provenance_handlers::handle_share_info(path, &self.provenance_db, &mut res)
+                            .await?;
                     } else {
                         self.handle_send_file(path, headers, head_only, &mut res)
                             .await?;

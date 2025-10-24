@@ -664,6 +664,7 @@ impl ProvenanceDb {
                 owner_pubkey_hex,
                 share_signature_hex,
                 is_active: is_active != 0,
+                stamp_status: None, // Will be populated by handler if needed
             }))
         } else {
             Ok(None)
@@ -702,6 +703,7 @@ impl ProvenanceDb {
                 owner_pubkey_hex,
                 share_signature_hex,
                 is_active: is_active != 0,
+                stamp_status: None, // Will be populated by handler if needed
             });
         }
 
@@ -785,6 +787,8 @@ pub struct ShareInfo {
     pub owner_pubkey_hex: String,
     pub share_signature_hex: String,
     pub is_active: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stamp_status: Option<serde_json::Value>,
 }
 
 /// Download record for tracking distribution chain

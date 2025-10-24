@@ -7,8 +7,11 @@ import {
   FilePdfOutlined,
   FileOutlined,
 } from "@ant-design/icons";
-import { useState, useEffect } from "react";
+import { useMemo } from "react";
+import { useAtomValue } from "jotai";
+import { loadable } from "jotai/utils";
 import { apiPath } from "../utils";
+import { fileContentAtomFamily } from "../state";
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -23,10 +26,6 @@ export default function FilePreviewDrawer({
   fileName,
   onClose,
 }: FilePreviewDrawerProps) {
-  const [loading, setLoading] = useState(false);
-  const [content, setContent] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
   const fileUrl = fileName ? apiPath(fileName) : "";
   const fileExt = fileName?.split(".").pop()?.toLowerCase() || "";
 
@@ -74,33 +73,23 @@ export default function FilePreviewDrawer({
   const isVideo = ["mp4", "webm", "ogg", "mov"].includes(fileExt);
   const isAudio = ["mp3", "wav", "ogg", "m4a", "flac"].includes(fileExt);
 
-  useEffect(() => {
-    if (!open || !fileName) {
-      setContent(null);
-      setError(null);
-      return;
-    }
+  // Only fetch content for text files when drawer is open
+  const shouldLoadContent = open && fileName && isText;
 
-    // For text files, fetch and display content
-    if (isText) {
-      setLoading(true);
-      fetch(fileUrl)
-        .then((res) => {
-          if (!res.ok) throw new Error(`HTTP ${res.status}`);
-          return res.text();
-        })
-        .then((text) => {
-          setContent(text);
-          setError(null);
-        })
-        .catch((err) => {
-          setError(`Failed to load file: ${err.message}`);
-        })
-        .finally(() => {
-          setLoading(false);
-        });
-    }
-  }, [open, fileName, fileUrl, isText]);
+  // Create loadable atom for file content
+  const fileContentAtom = useMemo(
+    () => shouldLoadContent && fileName ? loadable(fileContentAtomFamily(fileName)) : null,
+    [shouldLoadContent, fileName]
+  );
+
+  const fileContentLoadable = fileContentAtom ? useAtomValue(fileContentAtom) : null;
+
+  // Derive state from loadable
+  const loading = fileContentLoadable?.state === "loading";
+  const content = fileContentLoadable?.state === "hasData" ? fileContentLoadable.data : null;
+  const error = fileContentLoadable?.state === "hasError"
+    ? `Failed to load file: ${(fileContentLoadable.error as Error).message}`
+    : null;
 
   const renderPreview = () => {
     if (loading) {

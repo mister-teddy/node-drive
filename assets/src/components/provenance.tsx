@@ -1,4 +1,6 @@
-import { useState } from "react";
+import { useState, useEffect, useMemo } from "react";
+import { useAtomValue } from "jotai";
+import { loadable } from "jotai/utils";
 import {
   Tag,
   Modal,
@@ -21,8 +23,9 @@ import {
   CopyOutlined,
 } from "@ant-design/icons";
 import { useSpring, animated } from "@react-spring/web";
-import { formatHashShort, apiPath } from "../utils";
+import { formatHashShort } from "../utils";
 import OtsViewer from "./ots-viewer";
+import { manifestAtomFamily, otsInfoAtomFamily } from "../state";
 
 const { Text, Paragraph } = Typography;
 
@@ -36,32 +39,6 @@ interface StampStatus {
   };
   error?: string;
   sha256_hex?: string;
-}
-
-interface ProvenanceEvent {
-  action: string;
-  issued_at: string;
-  actors?: {
-    creator_pubkey_hex?: string;
-    new_owner_pubkey_hex?: string;
-  };
-  signatures?: {
-    creator_sig_hex?: string;
-    new_owner_sig_hex?: string;
-  };
-  ots_proof_b64?: string;
-  prev_event_hash_hex?: string;
-}
-
-interface Manifest {
-  type?: string;
-  artifact?: {
-    sha256_hex: string;
-    verified_chain?: string;
-    verified_timestamp?: number;
-    verified_height?: number;
-  };
-  events?: ProvenanceEvent[];
 }
 
 interface ProvenanceProps {
@@ -78,20 +55,45 @@ export default function Provenance({
   stampStatus,
   shareId,
 }: ProvenanceProps) {
-  const [manifest, setManifest] = useState<Manifest | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
+  // Create loadable atoms - ALWAYS created to comply with Rules of Hooks
+  const manifestAtom = useMemo(
+    () => loadable(manifestAtomFamily({ fileName, shareId })),
+    [fileName, shareId]
+  );
+  const otsInfoAtom = useMemo(
+    () => loadable(otsInfoAtomFamily({ fileName, shareId })),
+    [fileName, shareId]
+  );
+
+  // ALWAYS call hooks unconditionally (Rules of Hooks)
+  const manifestLoadable = useAtomValue(manifestAtom);
+  const otsInfoLoadable = useAtomValue(otsInfoAtom);
+
+  // Derive manifest and loading states from loadable
+  // For directories, just ignore the results
+  const manifest =
+    !isDir && manifestLoadable?.state === "hasData"
+      ? manifestLoadable.data
+      : null;
+  const isLoading =
+    !isDir && manifestLoadable?.state === "loading" ? true : false;
+
+  // Derive OTS info and loading states from loadable
+  const otsInfo =
+    !isDir && otsInfoLoadable?.state === "hasData"
+      ? otsInfoLoadable.data
+      : null;
+  const isLoadingOtsInfo =
+    !isDir && otsInfoLoadable?.state === "loading" ? true : false;
+
   const [isModalVisible, setIsModalVisible] = useState(false);
   const [expandedHashes, setExpandedHashes] = useState<{
     [key: string]: boolean;
   }>({});
   const [isFlipped, setIsFlipped] = useState(false);
-  const [otsInfo, setOtsInfo] = useState<{
-    file_hash: string;
-    operations: string[];
-  } | null>(null);
-  const [isLoadingOtsInfo, setIsLoadingOtsInfo] = useState(false);
   const isPending =
-    (typeof stampStatus === "string" || (stampStatus && !stampStatus.success)) &&
+    (typeof stampStatus === "string" ||
+      (stampStatus && !stampStatus.success)) &&
     !manifest?.artifact?.verified_timestamp;
 
   // Spring animation for card flip
@@ -116,90 +118,33 @@ export default function Provenance({
     setExpandedHashes((prev) => ({ ...prev, [hashId]: !prev[hashId] }));
   };
 
-  /**
-   * Fetch provenance data for this file
-   */
-  const fetchProvenanceData = async () => {
-    if (isDir || isLoading || manifest) {
-      return;
+  // Log errors if any
+  useEffect(() => {
+    if (manifestLoadable?.state === "hasError") {
+      console.error(
+        `Failed to fetch provenance for ${fileName}:`,
+        manifestLoadable.error
+      );
     }
+  }, [manifestLoadable, fileName]);
 
-    setIsLoading(true);
-
-    try {
-      // Use share endpoint if shareId is provided, otherwise use regular file endpoint
-      const url = shareId
-        ? `/share/${shareId}/manifest`
-        : apiPath(fileName) + "?manifest=json";
-      const response = await fetch(url);
-
-      if (response.ok) {
-        const manifestData = await response.json();
-        setManifest(manifestData);
-      }
-    } catch (error) {
-      console.error(`Failed to fetch provenance for ${fileName}:`, error);
-    } finally {
-      setIsLoading(false);
+  useEffect(() => {
+    if (otsInfoLoadable?.state === "hasError") {
+      console.error(
+        `Failed to fetch OTS info for ${fileName}:`,
+        otsInfoLoadable.error
+      );
     }
-  };
-
-  /**
-   * Fetch OTS info for this file
-   */
-  const fetchOtsInfo = async () => {
-    if (isDir || isLoadingOtsInfo || otsInfo) {
-      return;
-    }
-
-    setIsLoadingOtsInfo(true);
-
-    try {
-      // Use share endpoint if shareId is provided, otherwise use regular file endpoint
-      const url = shareId
-        ? `/share/${shareId}/ots-info`
-        : apiPath(fileName) + "?ots-info";
-      const response = await fetch(url);
-
-      if (response.ok) {
-        const info = await response.json();
-        setOtsInfo(info);
-      }
-    } catch (error) {
-      console.error(`Failed to fetch OTS info for ${fileName}:`, error);
-    } finally {
-      setIsLoadingOtsInfo(false);
-    }
-  };
+  }, [otsInfoLoadable, fileName]);
 
   const handleModalOpen = () => {
-    if (!manifest && !isLoading) {
-      fetchProvenanceData();
-    }
-
-    if (!otsInfo && !isLoadingOtsInfo) {
-      fetchOtsInfo();
-    }
-
-    // Use View Transition API for zoom animation if available
-    if (document.startViewTransition) {
-      document.startViewTransition(() => {
-        setIsModalVisible(true);
-      });
-    } else {
-      setIsModalVisible(true);
-    }
+    // Data will load automatically when atoms are subscribed
+    setIsModalVisible(true);
   };
 
   const handleModalClose = () => {
     setIsFlipped(false); // Reset flip state when closing
-    if (document.startViewTransition) {
-      document.startViewTransition(() => {
-        setIsModalVisible(false);
-      });
-    } else {
-      setIsModalVisible(false);
-    }
+    setIsModalVisible(false);
   };
 
   // Render summary view
@@ -223,7 +168,6 @@ export default function Provenance({
         onClick={handleModalOpen}
         style={{
           cursor: "pointer",
-          viewTransitionName: "provenance-badge",
         }}
       >
         <Tag
@@ -320,7 +264,8 @@ export default function Provenance({
         key: "bitcoin",
         label: (
           <Space size={8}>
-            {stampStatusObj?.success || manifest.artifact?.verified_timestamp ? (
+            {stampStatusObj?.success ||
+            manifest.artifact?.verified_timestamp ? (
               <CheckCircleOutlined style={{ color: "#52c41a" }} />
             ) : (
               <ClockCircleOutlined style={{ color: "#fa8c16" }} />
@@ -329,7 +274,7 @@ export default function Provenance({
           </Space>
         ),
         children:
-          (stampStatusObj?.success && stampStatusObj.results)
+          stampStatusObj?.success && stampStatusObj.results
             ? `Verified ${new Date(
                 stampStatusObj.results.bitcoin.timestamp * 1000
               ).toLocaleDateString("en-US", {
@@ -487,7 +432,7 @@ export default function Provenance({
               key: "bitcoin",
               label: "Bitcoin Block",
               children:
-                (stampStatusObj?.success && stampStatusObj.results) ? (
+                stampStatusObj?.success && stampStatusObj.results ? (
                   <Tag color="success" icon={<CheckCircleOutlined />}>
                     Block #{stampStatusObj.results.bitcoin.height}
                   </Tag>
@@ -640,7 +585,7 @@ export default function Provenance({
       },
       {
         key: "json",
-        label: "JSON",
+        label: "Provenance Manifest",
         children: (
           <div onClick={(e) => e.stopPropagation()}>
             <Paragraph>
@@ -686,7 +631,6 @@ export default function Provenance({
         styles={{
           body: {
             padding: 0,
-            viewTransitionName: "provenance-badge",
           },
           content: {
             padding: isFlipped ? undefined : 0,
@@ -697,10 +641,14 @@ export default function Provenance({
             style={{
               transformStyle: "preserve-3d",
               transform,
-              viewTransitionName: "provenance-badge",
             }}
           >
-            <div style={{ transform: isFlipped ? "scaleX(-1)" : "none" }}>
+            <div
+              style={{
+                transform: `scaleX(${isFlipped ? -1 : 1})`,
+                transition: "transform 0.6s",
+              }}
+            >
               {modal}
             </div>
           </animated.div>

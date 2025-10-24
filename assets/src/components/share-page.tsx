@@ -1,5 +1,7 @@
-import { useEffect, useState } from "react";
+import { useMemo, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
+import { useAtomValue } from "jotai";
+import { loadable } from "jotai/utils";
 import {
   Layout,
   Card,
@@ -25,53 +27,33 @@ import {
   HomeOutlined,
 } from "@ant-design/icons";
 import Provenance from "./provenance";
+import { shareInfoAtomFamily } from "../state";
 
 const { Title, Text, Paragraph } = Typography;
 const { Content } = Layout;
 
-interface ShareInfo {
-  share_id: string;
-  file_path: string;
-  file_sha256_hex: string;
-  created_at: string;
-  shared_by: string | null;
-  owner_pubkey_hex: string;
-  share_signature_hex: string;
-  is_active: boolean;
-}
-
 function SharePage() {
   const { shareId } = useParams<{ shareId: string }>();
   const navigate = useNavigate();
-  const [shareInfo, setShareInfo] = useState<ShareInfo | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+
+  // Create loadable atom for share info
+  const shareInfoAtom = useMemo(
+    () => shareId ? loadable(shareInfoAtomFamily(shareId)) : null,
+    [shareId]
+  );
+
+  const shareInfoLoadable = shareInfoAtom ? useAtomValue(shareInfoAtom) : null;
+
+  // Derive state from loadable
+  const loading = !shareId || shareInfoLoadable?.state === "loading";
+  const error = !shareId
+    ? "Invalid share link"
+    : shareInfoLoadable?.state === "hasError"
+      ? (shareInfoLoadable.error as Error).message || "Failed to load share information"
+      : null;
+  const shareInfo = shareInfoLoadable?.state === "hasData" ? shareInfoLoadable.data : null;
+
   const [downloading, setDownloading] = useState(false);
-
-  useEffect(() => {
-    if (!shareId) {
-      setError("Invalid share link");
-      setLoading(false);
-      return;
-    }
-
-    // Fetch share information
-    fetch(`/share/${shareId}/info`)
-      .then(async (res) => {
-        if (!res.ok) {
-          throw new Error("Share not found or expired");
-        }
-        return res.json();
-      })
-      .then((data: ShareInfo) => {
-        setShareInfo(data);
-        setLoading(false);
-      })
-      .catch((err) => {
-        setError(err.message || "Failed to load share information");
-        setLoading(false);
-      });
-  }, [shareId]);
 
   const handleDownload = () => {
     if (!shareId) return;
@@ -208,10 +190,7 @@ function SharePage() {
                 fileName={fileName}
                 defaultMode="summary"
                 isDir={false}
-                stampStatus={{
-                  success: true,
-                  sha256_hex: shareInfo.file_sha256_hex,
-                }}
+                stampStatus={shareInfo.stamp_status}
                 shareId={shareId}
               />
             </div>

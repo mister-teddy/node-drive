@@ -1,5 +1,6 @@
 import { atom } from "jotai";
-import { atomWithRefresh, loadable } from "jotai/utils";
+import { atomWithRefresh, loadable, atomFamily } from "jotai/utils";
+import { apiPath } from "./utils";
 
 export interface PathItem {
   path_type: "Dir" | "SymlinkDir" | "File" | "SymlinkFile";
@@ -174,3 +175,224 @@ export const allowArchiveAtom = atom((get) => {
   const perms = get(permissionsAtom);
   return perms.allow_archive;
 });
+
+// ============================================================================
+// Fetch Atoms - All fetch logic moved here from components
+// ============================================================================
+
+// ----- Manifest Fetching -----
+interface ManifestParams {
+  fileName: string;
+  shareId?: string;
+}
+
+export interface ProvenanceEvent {
+  action: string;
+  issued_at: string;
+  actors?: {
+    creator_pubkey_hex?: string;
+    new_owner_pubkey_hex?: string;
+  };
+  signatures?: {
+    creator_sig_hex?: string;
+    new_owner_sig_hex?: string;
+  };
+  ots_proof_b64?: string;
+  prev_event_hash_hex?: string;
+}
+
+export interface Manifest {
+  type?: string;
+  artifact?: {
+    sha256_hex: string;
+    verified_chain?: string;
+    verified_timestamp?: number;
+    verified_height?: number;
+  };
+  events?: ProvenanceEvent[];
+}
+
+export const manifestAtomFamily = atomFamily((params: ManifestParams) =>
+  atom(async () => {
+    const url = params.shareId
+      ? `/share/${params.shareId}/manifest`
+      : apiPath(params.fileName) + "?manifest=json";
+
+    const response = await fetch(url);
+
+    if (!response.ok) {
+      throw new Error(`Failed to fetch manifest: ${response.status}`);
+    }
+
+    const manifestData: Manifest = await response.json();
+    return manifestData;
+  })
+);
+
+// ----- OTS Info Fetching -----
+interface OtsInfoParams {
+  fileName: string;
+  shareId?: string;
+}
+
+interface OtsInfo {
+  file_hash: string;
+  operations: string[];
+}
+
+export const otsInfoAtomFamily = atomFamily((params: OtsInfoParams) =>
+  atom(async () => {
+    const url = params.shareId
+      ? `/share/${params.shareId}/ots-info`
+      : apiPath(params.fileName) + "?ots-info";
+
+    const response = await fetch(url);
+
+    if (!response.ok) {
+      throw new Error(`Failed to fetch OTS info: ${response.status}`);
+    }
+
+    const info: OtsInfo = await response.json();
+    return info;
+  })
+);
+
+// ----- Share Info Fetching -----
+export interface ShareInfo {
+  share_id: string;
+  file_path: string;
+  file_sha256_hex: string;
+  created_at: string;
+  shared_by: string | null;
+  owner_pubkey_hex: string;
+  share_signature_hex: string;
+  is_active: boolean;
+  stamp_status?: {
+    success: boolean;
+    results?: {
+      bitcoin: {
+        timestamp: number;
+        height: number;
+      };
+    };
+    error?: string;
+    sha256_hex?: string;
+  };
+}
+
+export const shareInfoAtomFamily = atomFamily((shareId: string) =>
+  atom(async () => {
+    const response = await fetch(`/share/${shareId}/info`);
+
+    if (!response.ok) {
+      throw new Error("Share not found or expired");
+    }
+
+    const data: ShareInfo = await response.json();
+    return data;
+  })
+);
+
+// ----- File Content Fetching (for text files) -----
+export const fileContentAtomFamily = atomFamily((fileName: string) =>
+  atom(async () => {
+    const fileUrl = apiPath(fileName);
+    const response = await fetch(fileUrl);
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+
+    const text = await response.text();
+    return text;
+  })
+);
+
+// ----- Mutation Atoms -----
+
+// Create share link
+interface ShareLinkResult {
+  success: boolean;
+  share_url?: string;
+}
+
+export const createShareLinkAtom = atom(
+  null,
+  async (_get, _set, fileName: string) => {
+    const url = apiPath(fileName) + "?share";
+    const response = await fetch(url, {
+      method: "POST",
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    const data: ShareLinkResult = await response.json();
+
+    if (!data.success) {
+      throw new Error("Failed to create share link");
+    }
+
+    return data;
+  }
+);
+
+// Delete file
+export const deleteFileAtom = atom(
+  null,
+  async (_get, set, fileName: string) => {
+    const url = apiPath(fileName);
+    const response = await fetch(url, {
+      method: "DELETE",
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    // Refresh main data after deletion
+    set(dataAtom);
+  }
+);
+
+// Move/rename file
+interface MoveFileParams {
+  fileName: string;
+  destinationUrl: string;
+}
+
+export const moveFileAtom = atom(
+  null,
+  async (_get, set, params: MoveFileParams) => {
+    const apiFileUrl = apiPath(params.fileName);
+    const response = await fetch(apiFileUrl, {
+      method: "MOVE",
+      headers: {
+        Destination: params.destinationUrl,
+      },
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(
+        `HTTP ${response.status}: ${errorText || response.statusText}`
+      );
+    }
+
+    // Refresh main data after move
+    set(dataAtom);
+  }
+);
+
+// Check if file exists (HEAD request)
+export const checkFileExistsAtom = atom(
+  null,
+  async (_get, _set, apiFileUrl: string) => {
+    const response = await fetch(apiFileUrl, {
+      method: "HEAD",
+    });
+
+    return response.status === 200;
+  }
+);

@@ -1,4 +1,5 @@
 import { Alert, Steps, Typography, Spin, Button } from "antd";
+import type { StepProps } from "antd";
 import {
   CheckCircleOutlined,
   ClockCircleOutlined,
@@ -174,8 +175,8 @@ function MerkleTreeOperations({ operations }: { operations: string[] }) {
 function parseOperationsToSteps(
   operations: string[],
   stampStatus?: StampStatus | null
-): any[] {
-  const steps: any[] = [];
+): StepProps[] {
+  const steps: StepProps[] = [];
   const isVerified = stampStatus?.success && stampStatus.results;
 
   // Step 1: File Hash

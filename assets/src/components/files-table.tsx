@@ -17,7 +17,6 @@ import {
   formatMtime,
   formatFileSize,
   formatDirSize,
-  apiPath,
   filePath,
 } from "../utils";
 import Provenance from "./provenance";
@@ -25,10 +24,13 @@ import { Link } from "react-router-dom";
 import FilePreviewDrawer from "./file-preview-drawer";
 import { useAtomValue, useSetAtom } from "jotai";
 import {
-  dataAtom,
   pathsAtom,
   permissionsAtom,
   loadableDataAtom,
+  createShareLinkAtom,
+  deleteFileAtom,
+  moveFileAtom,
+  checkFileExistsAtom,
 } from "../state";
 
 export interface PathItem {
@@ -60,7 +62,12 @@ export default function FilesTable({}: FilesTableProps) {
   const paths = useAtomValue(pathsAtom);
   const permissions = useAtomValue(permissionsAtom);
   const loadableData = useAtomValue(loadableDataAtom);
-  const refreshData = useSetAtom(dataAtom);
+
+  // Mutation atoms
+  const createShareLink = useSetAtom(createShareLinkAtom);
+  const deleteFile = useSetAtom(deleteFileAtom);
+  const moveFile = useSetAtom(moveFileAtom);
+  const checkFileExists = useSetAtom(checkFileExistsAtom);
 
   // Check if data is loading from any source
   const isLoading = loadableData.state === "loading";
@@ -124,17 +131,9 @@ export default function FilesTable({}: FilesTableProps) {
     setLoadingShare(true);
 
     try {
-      const url = apiPath(file.name) + "?share";
-      const res = await fetch(url, {
-        method: "POST",
-      });
+      const data = await createShareLink(file.name);
 
-      if (!res.ok) {
-        throw new Error(`HTTP ${res.status}: ${res.statusText}`);
-      }
-
-      const data = await res.json();
-      if (data.success) {
+      if (data.success && data.share_url) {
         // Create full URL with current origin
         const fullShareUrl = window.location.origin + data.share_url;
         setShareUrl(fullShareUrl);
@@ -171,17 +170,8 @@ export default function FilesTable({}: FilesTableProps) {
       cancelText: "Cancel",
       onOk: async () => {
         try {
-          const url = apiPath(file.name);
-          const res = await fetch(url, {
-            method: "DELETE",
-          });
-
-          if (!res.ok) {
-            throw new Error(`HTTP ${res.status}: ${res.statusText}`);
-          }
-
-          // Refresh data from server to update the file list
-          refreshData();
+          await deleteFile(file.name);
+          // No need to manually refresh - the atom does it
         } catch (err) {
           const error = err as Error;
           Modal.error({
@@ -203,8 +193,6 @@ export default function FilesTable({}: FilesTableProps) {
       if (!targetPath) return;
       if (!targetPath.startsWith("/")) targetPath = "/" + targetPath;
       if (currentFilePath === targetPath) return;
-
-      const apiFileUrl = apiPath(file.name);
 
       // Extract the relative path from the absolute newPath
       // newPath is like "/Photos/Screenshot.png", need to convert to properly encoded path
@@ -228,10 +216,9 @@ export default function FilesTable({}: FilesTableProps) {
       apiNewFileUrl += fileName?.split("/").map(encodeURIComponent).join("/");
 
       try {
-        const res1 = await fetch(apiNewFileUrl, {
-          method: "HEAD",
-        });
-        if (res1.status === 200) {
+        const fileExists = await checkFileExists(apiNewFileUrl);
+
+        if (fileExists) {
           Modal.confirm({
             title: "File exists",
             content:
@@ -241,21 +228,8 @@ export default function FilesTable({}: FilesTableProps) {
             cancelText: "Cancel",
             onOk: async () => {
               try {
-                const res2 = await fetch(apiFileUrl, {
-                  method: "MOVE",
-                  headers: {
-                    Destination: destinationUrl,
-                  },
-                });
-
-                if (!res2.ok) {
-                  const errorText = await res2.text();
-                  throw new Error(
-                    `HTTP ${res2.status}: ${errorText || res2.statusText}`
-                  );
-                }
-
-                refreshData();
+                await moveFile({ fileName: file.name, destinationUrl });
+                // No need to manually refresh - the atom does it
               } catch (err) {
                 const error = err as Error;
                 Modal.error({
@@ -268,21 +242,8 @@ export default function FilesTable({}: FilesTableProps) {
           return;
         }
 
-        const res2 = await fetch(apiFileUrl, {
-          method: "MOVE",
-          headers: {
-            Destination: destinationUrl,
-          },
-        });
-
-        if (!res2.ok) {
-          const errorText = await res2.text();
-          throw new Error(
-            `HTTP ${res2.status}: ${errorText || res2.statusText}`
-          );
-        }
-
-        refreshData();
+        await moveFile({ fileName: file.name, destinationUrl });
+        // No need to manually refresh - the atom does it
       } catch (err) {
         const error = err as Error;
         Modal.error({
