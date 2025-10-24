@@ -9,7 +9,13 @@ import UppyUploader from "./components/uppy-uploader";
 import SharePage from "./components/share-page";
 import { filePickerTriggerAtom } from "./store/uppyStore";
 import { apiPath } from "./utils";
-import { currentLocationAtom, dataAtom, metadataAtom, authAtom, permissionsAtom } from "./state";
+import {
+  currentLocationAtom,
+  dataAtom,
+  metadataAtom,
+  authAtom,
+  permissionsAtom,
+} from "./state";
 
 const { Content } = Layout;
 
@@ -91,7 +97,7 @@ function AppContent() {
       <Route
         path="*"
         element={
-          <Layout style={{ minHeight: "100vh", background: "#f5f5f5" }}>
+          <Layout className="h-screen bg-gray-100">
             <Header
               auth={auth.auth}
               user={auth.user}
@@ -141,10 +147,13 @@ function AppContent() {
               }}
             />
 
-            <Content style={{ padding: "0", position: "relative" }}>
+            <Content className="p-0 relative flex-1 overflow-y-auto">
               <Flex justify="space-between" align="center" gap="16px">
-                <Breadcrumb href={metadata.href} uriPrefix={metadata.uri_prefix} />
-                <Typography.Text type="secondary" style={{ padding: "0 24px" }}>
+                <Breadcrumb
+                  href={metadata.href}
+                  uriPrefix={metadata.uri_prefix}
+                />
+                <Typography.Text type="secondary" className="px-6">
                   Drop files anywhere to upload
                 </Typography.Text>
               </Flex>
@@ -186,14 +195,7 @@ function App() {
   return (
     <Suspense
       fallback={
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "center",
-            alignItems: "center",
-            minHeight: "100vh",
-          }}
-        >
+        <div className="flex justify-center items-center min-h-screen">
           <Spin size="large" tip="Loading..." />
         </div>
       }

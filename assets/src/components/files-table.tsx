@@ -13,12 +13,7 @@ import {
   DragOutlined,
   ShareAltOutlined,
 } from "@ant-design/icons";
-import {
-  formatMtime,
-  formatFileSize,
-  formatDirSize,
-  filePath,
-} from "../utils";
+import { formatMtime, formatFileSize, formatDirSize, filePath } from "../utils";
 import Provenance from "./provenance";
 import { Link } from "react-router-dom";
 import FilePreviewDrawer from "./file-preview-drawer";
@@ -84,35 +79,29 @@ export default function FilesTable({}: FilesTableProps) {
   const getFileIcon = (file: PathItem) => {
     const isDir = file.path_type.endsWith("Dir");
     if (isDir) {
-      return <FolderOutlined style={{ fontSize: "18px", color: "#1890ff" }} />;
+      return <FolderOutlined className="text-lg text-blue-500" />;
     }
 
     const ext = file.name.split(".").pop()?.toLowerCase() || "";
 
     // Images
     if (["jpg", "jpeg", "png", "gif", "svg", "webp", "bmp"].includes(ext)) {
-      return (
-        <FileImageOutlined style={{ fontSize: "18px", color: "#52c41a" }} />
-      );
+      return <FileImageOutlined className="text-lg text-green-500" />;
     }
     // Archives
     if (["zip", "rar", "7z", "tar", "gz"].includes(ext)) {
-      return <FileZipOutlined style={{ fontSize: "18px", color: "#fa8c16" }} />;
+      return <FileZipOutlined className="text-lg text-orange-500" />;
     }
     // Markdown
     if (["md", "markdown"].includes(ext)) {
-      return (
-        <FileMarkdownOutlined style={{ fontSize: "18px", color: "#722ed1" }} />
-      );
+      return <FileMarkdownOutlined className="text-lg text-purple-600" />;
     }
     // Text
     if (["txt", "json", "xml", "yaml", "yml"].includes(ext)) {
-      return (
-        <FileTextOutlined style={{ fontSize: "18px", color: "#8c8c8c" }} />
-      );
+      return <FileTextOutlined className="text-lg text-gray-500" />;
     }
 
-    return <FileOutlined style={{ fontSize: "18px", color: "#d9d9d9" }} />;
+    return <FileOutlined className="text-lg text-gray-300" />;
   };
 
   const renderVerificationStamps = (file: PathItem) => {
@@ -300,14 +289,8 @@ export default function FilesTable({}: FilesTableProps) {
 
     // Create a custom drag image with the file name
     const dragImage = document.createElement("div");
-    dragImage.style.position = "absolute";
-    dragImage.style.top = "-1000px";
-    dragImage.style.padding = "8px 12px";
-    dragImage.style.backgroundColor = "#1890ff";
-    dragImage.style.color = "white";
-    dragImage.style.borderRadius = "4px";
-    dragImage.style.fontSize = "14px";
-    dragImage.style.fontWeight = "500";
+    dragImage.className =
+      "absolute -top-[1000px] px-3 py-2 bg-blue-500 text-white rounded text-sm font-medium";
     dragImage.textContent = `Moving: ${file.name}`;
     document.body.appendChild(dragImage);
     e.dataTransfer.setDragImage(dragImage, 0, 0);
@@ -404,7 +387,7 @@ export default function FilesTable({}: FilesTableProps) {
           <Space>
             {getFileIcon(file)}
             {isDir ? (
-              <Link to={path} style={{ color: "#1890ff", fontWeight: 500 }}>
+              <Link to={path} className="text-blue-500 font-medium">
                 {name}
               </Link>
             ) : (
@@ -413,7 +396,7 @@ export default function FilesTable({}: FilesTableProps) {
                   e.preventDefault();
                   handleFileClick(file);
                 }}
-                style={{ color: "#1890ff", fontWeight: 500, cursor: "pointer" }}
+                className="text-blue-500 font-medium cursor-pointer"
               >
                 {name}
               </a>
@@ -440,7 +423,7 @@ export default function FilesTable({}: FilesTableProps) {
         const sizeDisplay = isDir
           ? formatDirSize(file.size)
           : formatFileSize(file.size).join(" ");
-        return <span style={{ color: "#8c8c8c" }}>{sizeDisplay}</span>;
+        return <span className="text-gray-500">{sizeDisplay}</span>;
       },
     },
     {
@@ -449,7 +432,7 @@ export default function FilesTable({}: FilesTableProps) {
       key: "mtime",
       width: 180,
       render: (mtime: number) => (
-        <span style={{ color: "#8c8c8c" }}>{formatMtime(mtime)}</span>
+        <span className="text-gray-500">{formatMtime(mtime)}</span>
       ),
     },
     {
@@ -517,39 +500,35 @@ export default function FilesTable({}: FilesTableProps) {
 
   return (
     <>
-      <div style={{ padding: "0 24px 24px" }}>
-        <Table
-          loading={isLoading}
-          columns={columns}
-          dataSource={paths}
-          rowKey="name"
-          pagination={false}
-          style={{ background: "#fff" }}
-          onRow={(record: PathItem) => {
-            const isFolder = record.path_type.endsWith("Dir");
-            const isDragging = draggedFile?.name === record.name;
-            const isDropTarget = dragOverFolder === record.name;
+      <Table
+        loading={isLoading}
+        columns={columns}
+        dataSource={paths}
+        rowKey="name"
+        pagination={false}
+        className="bg-white"
+        onRow={(record: PathItem) => {
+          const isFolder = record.path_type.endsWith("Dir");
+          const isDragging = draggedFile?.name === record.name;
+          const isDropTarget = dragOverFolder === record.name;
 
-            return {
-              draggable: true,
-              onDragStart: (e) => handleDragStart(e, record),
-              onDragEnd: handleDragEnd,
-              onDragOver: (e) => handleDragOver(e, record),
-              onDragLeave: handleDragLeave,
-              onDrop: (e) => handleDrop(e, record),
-              style: {
-                cursor: isDragging ? "grabbing" : "grab",
-                opacity: isDragging ? 0.5 : 1,
-                backgroundColor:
-                  isDropTarget && isFolder ? "#e6f7ff" : undefined,
-                borderLeft:
-                  isDropTarget && isFolder ? "3px solid #1890ff" : undefined,
-                transition: "all 0.2s ease",
-              },
-            };
-          }}
-        />
-      </div>
+          return {
+            draggable: true,
+            onDragStart: (e) => handleDragStart(e, record),
+            onDragEnd: handleDragEnd,
+            onDragOver: (e) => handleDragOver(e, record),
+            onDragLeave: handleDragLeave,
+            onDrop: (e) => handleDrop(e, record),
+            className: `transition-all duration-200 ease-in-out ${
+              isDragging ? "cursor-grabbing opacity-50" : "cursor-grab"
+            } ${
+              isDropTarget && isFolder
+                ? "bg-blue-50 border-l-[3px] border-l-blue-500"
+                : ""
+            }`,
+          };
+        }}
+      />
 
       <FilePreviewDrawer
         open={isDrawerOpen}
@@ -570,30 +549,23 @@ export default function FilesTable({}: FilesTableProps) {
           </Button>,
         ]}
       >
-        <div style={{ marginBottom: 16 }}>
-          <p style={{ marginBottom: 8, color: "#8c8c8c" }}>
+        <div className="mb-4">
+          <p className="mb-2 text-gray-500">
             Share this link to allow others to download the file:
           </p>
           <Input
             value={shareUrl}
             readOnly
             onClick={(e) => e.currentTarget.select()}
-            style={{ fontFamily: "monospace", fontSize: 12 }}
+            className="font-mono text-xs"
           />
         </div>
         {sharingFile && (
-          <div
-            style={{
-              marginTop: 16,
-              padding: 12,
-              background: "#f5f5f5",
-              borderRadius: 4,
-            }}
-          >
-            <p style={{ margin: 0, fontSize: 12, color: "#595959" }}>
+          <div className="mt-4 p-3 bg-gray-100 rounded">
+            <p className="m-0 text-xs text-gray-600">
               <strong>File:</strong> {sharingFile.name}
             </p>
-            <p style={{ margin: "4px 0 0 0", fontSize: 12, color: "#595959" }}>
+            <p className="mt-1 mb-0 text-xs text-gray-600">
               <strong>Note:</strong> Anyone with this link can download the
               file. The download will be tracked with cryptographic
               verification.

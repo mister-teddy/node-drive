@@ -55,7 +55,7 @@ export function Breadcrumb({ href, uriPrefix }: BreadcrumbProps) {
 
     if (item.isLast) {
       return {
-        title: <span style={{ fontWeight: 500 }}>{item.name}</span>,
+        title: <span className="font-medium">{item.name}</span>,
       };
     }
 
@@ -65,7 +65,7 @@ export function Breadcrumb({ href, uriPrefix }: BreadcrumbProps) {
   });
 
   return (
-    <div style={{ padding: "16px 24px" }}>
+    <div className="py-4 px-6">
       <AntBreadcrumb items={breadcrumbItems} />
     </div>
   );

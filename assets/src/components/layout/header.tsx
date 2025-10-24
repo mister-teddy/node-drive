@@ -43,48 +43,18 @@ export function Header({
   };
 
   return (
-    <AntHeader
-      style={{
-        position: "sticky",
-        top: 0,
-        zIndex: 50,
-        width: "100%",
-        background: "#fff",
-        borderBottom: "1px solid #f0f0f0",
-        padding: "0 24px",
-        display: "flex",
-        alignItems: "center",
-        gap: "16px",
-      }}
-    >
+    <AntHeader className="sticky top-0 z-50 w-full bg-white! border-b border-gray-200 px-6 flex items-center gap-4">
       {/* Logo/Brand */}
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: "8px",
-          minWidth: "150px",
-        }}
-      >
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            width: "32px",
-            height: "32px",
-            borderRadius: "8px",
-            background: "#1890ff",
-          }}
-        >
+      <div className="flex items-center gap-2 min-w-[150px]">
+        <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-blue-500">
           <NodeLogo />
         </div>
-        <span style={{ fontWeight: 600, fontSize: "16px" }}>Node Drive</span>
+        <span className="font-semibold text-base">Node Drive</span>
       </div>
 
       {/* Search Bar */}
       {allowSearch && (
-        <div style={{ flex: 1, maxWidth: "500px" }}>
+        <div className="flex-1 max-w-[500px]">
           <Input
             placeholder="Search files and folders..."
             prefix={<SearchOutlined />}
@@ -96,7 +66,7 @@ export function Header({
         </div>
       )}
 
-      <div style={{ flex: 1, display: "flex", justifyContent: "flex-end" }}>
+      <div className="flex-1 flex justify-end">
         <Space>
           {/* Action Buttons */}
           {allowUpload && (
