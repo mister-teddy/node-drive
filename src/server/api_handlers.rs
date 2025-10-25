@@ -26,7 +26,10 @@ impl Server {
     ) -> Result<()> {
         // Get directory listing
         let mut paths = if exist {
-            match self.list_dir(path, path, access_paths.clone()).await {
+            match self
+                .list_dir(path, &self.args.serve_path, access_paths.clone())
+                .await
+            {
                 Ok(paths) => paths,
                 Err(_) => {
                     status_forbid(res);

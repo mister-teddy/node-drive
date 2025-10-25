@@ -121,13 +121,17 @@ fn hidden_dir_only(
         .as_array()
         .unwrap()
         .iter()
-        .map(|v| {
+        .filter_map(|v| {
             let name = v.get("name").unwrap().as_str().unwrap();
+            // Skip the ".." parent directory entry for test counting
+            if name == ".." {
+                return None;
+            }
             let path_type = v.get("path_type").unwrap().as_str().unwrap();
             if path_type.ends_with("Dir") {
-                format!("{name}/")
+                Some(format!("{name}/"))
             } else {
-                name.to_owned()
+                Some(name.to_owned())
             }
         })
         .collect();

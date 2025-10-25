@@ -84,6 +84,14 @@ export default function FilesTable({}: FilesTableProps) {
   // Mobile detection state
   const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
 
+  // Helper function to get just the filename without path
+  const getBasename = (name: string) => {
+    if (name.includes("/")) {
+      return name.substring(name.lastIndexOf("/") + 1);
+    }
+    return name;
+  };
+
   const [previewFile, setPreviewFile] = useState<string | null>(null);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [draggedFile, setDraggedFile] = useState<PathItem | null>(null);
@@ -178,9 +186,10 @@ export default function FilesTable({}: FilesTableProps) {
   };
 
   const handleDelete = async (file: PathItem) => {
+    const displayName = getBasename(file.name);
     Modal.confirm({
       title: "Delete file",
-      content: `Are you sure you want to delete "${file.name}"?`,
+      content: `Are you sure you want to delete "${displayName}"?`,
       okText: "Delete",
       okType: "danger",
       cancelText: "Cancel",
@@ -192,7 +201,7 @@ export default function FilesTable({}: FilesTableProps) {
           const error = err as Error;
           Modal.error({
             title: "Delete failed",
-            content: `Cannot delete "${file.name}": ${error.message}`,
+            content: `Cannot delete "${displayName}": ${error.message}`,
           });
         }
       },
@@ -200,10 +209,15 @@ export default function FilesTable({}: FilesTableProps) {
   };
 
   const handleMove = async (file: PathItem, newPath?: string | null) => {
+    // Extract just the filename, not the full relative path
+    // Use the last part of the path (filename only), or the full name if no slashes
+    const fileName = file.name.includes("/")
+      ? file.name.substring(file.name.lastIndexOf("/") + 1)
+      : file.name;
     const currentFilePath =
       location.pathname +
       (location.pathname.endsWith("/") ? "" : "/") +
-      file.name;
+      fileName;
 
     const performMove = async (targetPath: string) => {
       if (!targetPath) return;
@@ -213,7 +227,7 @@ export default function FilesTable({}: FilesTableProps) {
       // Extract the relative path from the absolute newPath
       // newPath is like "/Photos/Screenshot.png", need to convert to properly encoded path
       const pathSegments = targetPath.split("/").filter(Boolean);
-      const fileName = pathSegments.pop(); // Get the filename
+      const fileName = pathSegments.pop() ?? ""; // Get the filename
       const folderPath = "/" + pathSegments.join("/"); // Get the folder path
 
       // Build properly encoded destination path
@@ -244,7 +258,7 @@ export default function FilesTable({}: FilesTableProps) {
             cancelText: "Cancel",
             onOk: async () => {
               try {
-                await moveFile({ fileName: file.name, destinationUrl });
+                await moveFile({ fileName, destinationUrl });
                 // No need to manually refresh - the atom does it
               } catch (err) {
                 const error = err as Error;
@@ -258,7 +272,7 @@ export default function FilesTable({}: FilesTableProps) {
           return;
         }
 
-        await moveFile({ fileName: file.name, destinationUrl });
+        await moveFile({ fileName, destinationUrl });
         // No need to manually refresh - the atom does it
       } catch (err) {
         const error = err as Error;
@@ -318,7 +332,7 @@ export default function FilesTable({}: FilesTableProps) {
     const dragImage = document.createElement("div");
     dragImage.className =
       "absolute -top-[1000px] px-3 py-2 bg-blue-500 text-white rounded text-sm font-medium";
-    dragImage.textContent = `Moving: ${file.name}`;
+    dragImage.textContent = `Moving: ${getBasename(file.name)}`;
     document.body.appendChild(dragImage);
     e.dataTransfer.setDragImage(dragImage, 0, 0);
     setTimeout(() => document.body.removeChild(dragImage), 0);
@@ -392,7 +406,18 @@ export default function FilesTable({}: FilesTableProps) {
     const currentPath = location.pathname.endsWith("/")
       ? location.pathname
       : location.pathname + "/";
-    const newPath = currentPath + targetFolder.name + "/" + draggedFile.name;
+
+    let newPath: string;
+
+    // Handle ".." parent directory specially
+    if (targetFolder.name === "..") {
+      // Navigate to parent directory
+      const pathParts = currentPath.split("/").filter(Boolean);
+      pathParts.pop(); // Remove current directory
+      newPath = "/" + pathParts.join("/") + "/" + draggedFile.name;
+    } else {
+      newPath = currentPath + targetFolder.name + "/" + draggedFile.name;
+    }
 
     try {
       await handleMove(draggedFile, newPath);
@@ -506,30 +531,32 @@ export default function FilesTable({}: FilesTableProps) {
                   </div>
 
                   {/* File name */}
-                  <div className="w-full break-words overflow-hidden">
+                  <div className="w-full wrap-break-words overflow-hidden">
                     {isDir ? (
                       <Link
                         to={path}
                         onClick={(e) => e.stopPropagation()}
-                        className="text-sm font-medium text-blue-500 hover:text-blue-700 break-words"
+                        className="text-sm font-medium text-blue-500 hover:text-blue-700 wrap-break-words"
                       >
-                        {file.name}
+                        {getBasename(file.name)}
                       </Link>
                     ) : (
-                      <div className="text-sm font-medium text-gray-900 break-words">
-                        {file.name}
+                      <div className="text-sm font-medium text-gray-900 wrap-break-words">
+                        {getBasename(file.name)}
                       </div>
                     )}
                   </div>
 
                   {/* Metadata */}
-                  <div className="w-full mt-2 text-xs text-gray-500 break-words">
-                    <div className="break-words">
+                  <div className="w-full mt-2 text-xs text-gray-500 wrap-break-words">
+                    <div className="wrap-break-words">
                       {isDir
                         ? formatDirSize(file.size)
                         : formatFileSize(file.size).join(" ")}
                     </div>
-                    <div className="break-words">{formatMtime(file.mtime)}</div>
+                    <div className="wrap-break-words">
+                      {formatMtime(file.mtime)}
+                    </div>
                   </div>
 
                   {/* Verification for files */}
@@ -559,13 +586,14 @@ export default function FilesTable({}: FilesTableProps) {
       render: (name: string, file: PathItem) => {
         const isDir = file.path_type.endsWith("Dir");
         const path = filePath(file.name) + (isDir ? "/" : "");
+        const displayName = getBasename(name);
 
         return (
           <Space>
             {getFileIcon(file)}
             {isDir ? (
               <Link to={path} className="text-blue-500 font-medium">
-                {name}
+                {displayName}
               </Link>
             ) : (
               <a
@@ -575,7 +603,7 @@ export default function FilesTable({}: FilesTableProps) {
                 }}
                 className="text-blue-500 font-medium cursor-pointer"
               >
-                {name}
+                {displayName}
               </a>
             )}
           </Space>

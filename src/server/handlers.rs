@@ -1262,14 +1262,14 @@ impl Server {
 
         if access_paths.perm().indexonly() {
             for name in access_paths.child_names() {
-                let entry_path = entry_path.join(name);
-                self.add_pathitem(&mut paths, base_path, &entry_path).await;
+                let child_path = entry_path.join(name);
+                self.add_pathitem(&mut paths, base_path, &child_path).await;
             }
         } else {
             let mut rd = fs::read_dir(entry_path).await?;
             while let Ok(Some(entry)) = rd.next_entry().await {
-                let entry_path = entry.path();
-                self.add_pathitem(&mut paths, base_path, &entry_path).await;
+                let child_path = entry.path();
+                self.add_pathitem(&mut paths, base_path, &child_path).await;
             }
         }
         Ok(paths)
@@ -1496,7 +1496,10 @@ impl Server {
                 .list_dir(path, &self.args.serve_path, access_paths)
                 .await
             {
-                Ok(child) => paths.extend(child),
+                Ok(child) => {
+                    // Filter out ".." parent directory entry for WebDAV responses
+                    paths.extend(child.into_iter().filter(|item| item.name != ".."));
+                }
                 Err(_) => {
                     status_forbid(res);
                     return Ok(());
