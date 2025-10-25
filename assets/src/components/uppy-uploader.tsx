@@ -143,7 +143,7 @@ const UppyUploader = ({ auth, onAuthRequired }: UppyUploaderProps) => {
 
   useEffect(() => {
     // Register the file picker trigger function with the store
-    setFilePickerTrigger(() => {
+    setFilePickerTrigger(() => () => {
       fileInputRef.current?.click();
     });
   }, [setFilePickerTrigger]);

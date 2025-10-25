@@ -1,6 +1,19 @@
-import { useState } from "react";
-import { Table, Button, Space, Tooltip, Modal, Input, message } from "antd";
+import { useState, useEffect } from "react";
+import {
+  Table,
+  Button,
+  Space,
+  Tooltip,
+  Modal,
+  Input,
+  message,
+  Card,
+  Row,
+  Col,
+  Dropdown,
+} from "antd";
 import type { ColumnsType } from "antd/es/table";
+import type { MenuProps } from "antd";
 import {
   FolderOutlined,
   FileOutlined,
@@ -12,6 +25,7 @@ import {
   DeleteOutlined,
   DragOutlined,
   ShareAltOutlined,
+  MoreOutlined,
 } from "@ant-design/icons";
 import { formatMtime, formatFileSize, formatDirSize, filePath } from "../utils";
 import Provenance from "./provenance";
@@ -67,6 +81,9 @@ export default function FilesTable({}: FilesTableProps) {
   // Check if data is loading from any source
   const isLoading = loadableData.state === "loading";
 
+  // Mobile detection state
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
+
   const [previewFile, setPreviewFile] = useState<string | null>(null);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [draggedFile, setDraggedFile] = useState<PathItem | null>(null);
@@ -75,6 +92,16 @@ export default function FilesTable({}: FilesTableProps) {
   const [shareUrl, setShareUrl] = useState("");
   const [sharingFile, setSharingFile] = useState<PathItem | null>(null);
   const [loadingShare, setLoadingShare] = useState(false);
+
+  // Handle window resize for mobile detection
+  useEffect(() => {
+    const handleResize = () => {
+      setIsMobile(window.innerWidth < 768);
+    };
+
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
 
   const getFileIcon = (file: PathItem) => {
     const isDir = file.path_type.endsWith("Dir");
@@ -374,11 +401,161 @@ export default function FilesTable({}: FilesTableProps) {
     }
   };
 
+  // Get actions menu for mobile view
+  const getActionsMenu = (file: PathItem): MenuProps["items"] => {
+    const isDir = file.path_type.endsWith("Dir");
+    const path = filePath(file.name) + (isDir ? "/" : "");
+
+    const items: MenuProps["items"] = [
+      {
+        key: "download",
+        icon: <DownloadOutlined />,
+        label: (
+          <a
+            href={
+              path + (isDir && permissions.allow_archive ? "?zip" : "?download")
+            }
+            download
+          >
+            {isDir ? "Download as zip" : "Download"}
+          </a>
+        ),
+      },
+    ];
+
+    if (!isDir) {
+      items.push({
+        key: "share",
+        icon: <ShareAltOutlined />,
+        label: "Share",
+        onClick: () => handleShare(file),
+      });
+    }
+
+    if (permissions.allow_upload && permissions.allow_delete) {
+      items.push({
+        key: "move",
+        icon: <DragOutlined />,
+        label: "Move",
+        onClick: () => handleMove(file),
+      });
+    }
+
+    if (permissions.allow_delete) {
+      items.push({
+        key: "delete",
+        icon: <DeleteOutlined />,
+        label: "Delete",
+        danger: true,
+        onClick: () => handleDelete(file),
+      });
+    }
+
+    return items;
+  };
+
+  // Render grid view
+  const renderGridView = () => (
+    <div className="px-4 pb-4">
+      <Row gutter={[16, 16]}>
+        {paths.map((file) => {
+          const isDir = file.path_type.endsWith("Dir");
+          const path = filePath(file.name) + (isDir ? "/" : "");
+
+          return (
+            <Col key={file.name} xs={12} sm={8} md={6} lg={4} xl={3}>
+              <Card
+                hoverable
+                className="h-full flex flex-col relative"
+                styles={{ body: { padding: "12px" } }}
+                onClick={() => {
+                  if (!isDir) {
+                    handleFileClick(file);
+                  }
+                }}
+              >
+                {/* Actions menu - positioned absolutely in top right */}
+                <div
+                  className="absolute top-2 right-2 z-10"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <Dropdown
+                    menu={{ items: getActionsMenu(file) }}
+                    trigger={["click"]}
+                  >
+                    <Button
+                      type="text"
+                      icon={<MoreOutlined />}
+                      size="small"
+                      className="bg-white shadow-sm hover:bg-gray-50"
+                    />
+                  </Dropdown>
+                </div>
+
+                {/* Card content */}
+                <div className="flex flex-col items-center text-center">
+                  {/* Icon */}
+                  <div className="text-5xl mb-2">
+                    {isDir ? (
+                      <Link to={path} onClick={(e) => e.stopPropagation()}>
+                        {getFileIcon(file)}
+                      </Link>
+                    ) : (
+                      getFileIcon(file)
+                    )}
+                  </div>
+
+                  {/* File name */}
+                  <div className="w-full break-words overflow-hidden">
+                    {isDir ? (
+                      <Link
+                        to={path}
+                        onClick={(e) => e.stopPropagation()}
+                        className="text-sm font-medium text-blue-500 hover:text-blue-700 break-words"
+                      >
+                        {file.name}
+                      </Link>
+                    ) : (
+                      <div className="text-sm font-medium text-gray-900 break-words">
+                        {file.name}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Metadata */}
+                  <div className="w-full mt-2 text-xs text-gray-500 break-words">
+                    <div className="break-words">
+                      {isDir
+                        ? formatDirSize(file.size)
+                        : formatFileSize(file.size).join(" ")}
+                    </div>
+                    <div className="break-words">{formatMtime(file.mtime)}</div>
+                  </div>
+
+                  {/* Verification for files */}
+                  {!isDir && (
+                    <div
+                      className="w-full mt-2"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      {renderVerificationStamps(file)}
+                    </div>
+                  )}
+                </div>
+              </Card>
+            </Col>
+          );
+        })}
+      </Row>
+    </div>
+  );
+
   const columns: ColumnsType<PathItem> = [
     {
       title: "Name",
       dataIndex: "name",
       key: "name",
+      ellipsis: true,
       render: (name: string, file: PathItem) => {
         const isDir = file.path_type.endsWith("Dir");
         const path = filePath(file.name) + (isDir ? "/" : "");
@@ -439,6 +616,7 @@ export default function FilesTable({}: FilesTableProps) {
       title: "Actions",
       key: "actions",
       width: 150,
+      fixed: true,
       render: (_: unknown, file: PathItem) => {
         const isDir = file.path_type.endsWith("Dir");
         const path = filePath(file.name) + (isDir ? "/" : "");
@@ -500,40 +678,47 @@ export default function FilesTable({}: FilesTableProps) {
 
   return (
     <>
-      <Table
-        loading={isLoading}
-        columns={columns}
-        dataSource={paths}
-        rowKey="name"
-        pagination={false}
-        className="bg-white"
-        onRow={(record: PathItem) => {
-          const isFolder = record.path_type.endsWith("Dir");
-          const isDragging = draggedFile?.name === record.name;
-          const isDropTarget = dragOverFolder === record.name;
+      {/* Render based on screen size - Mobile: Grid, Desktop: Table */}
+      {isMobile ? (
+        renderGridView()
+      ) : (
+        <Table
+          loading={isLoading}
+          columns={columns}
+          dataSource={paths}
+          rowKey="name"
+          tableLayout="fixed"
+          pagination={false}
+          className="bg-white"
+          onRow={(record: PathItem) => {
+            const isFolder = record.path_type.endsWith("Dir");
+            const isDragging = draggedFile?.name === record.name;
+            const isDropTarget = dragOverFolder === record.name;
 
-          return {
-            draggable: true,
-            onDragStart: (e) => handleDragStart(e, record),
-            onDragEnd: handleDragEnd,
-            onDragOver: (e) => handleDragOver(e, record),
-            onDragLeave: handleDragLeave,
-            onDrop: (e) => handleDrop(e, record),
-            className: `transition-all duration-200 ease-in-out ${
-              isDragging ? "cursor-grabbing opacity-50" : "cursor-grab"
-            } ${
-              isDropTarget && isFolder
-                ? "bg-blue-50 border-l-[3px] border-l-blue-500"
-                : ""
-            }`,
-          };
-        }}
-      />
+            return {
+              draggable: true,
+              onDragStart: (e) => handleDragStart(e, record),
+              onDragEnd: handleDragEnd,
+              onDragOver: (e) => handleDragOver(e, record),
+              onDragLeave: handleDragLeave,
+              onDrop: (e) => handleDrop(e, record),
+              className: `transition-all duration-200 ease-in-out ${
+                isDragging ? "cursor-grabbing opacity-50" : "cursor-grab"
+              } ${
+                isDropTarget && isFolder
+                  ? "bg-blue-50 border-l-[3px] border-l-blue-500"
+                  : ""
+              }`,
+            };
+          }}
+        />
+      )}
 
       <FilePreviewDrawer
         open={isDrawerOpen}
         fileName={previewFile}
         onClose={handleDrawerClose}
+        isMobile={isMobile}
       />
 
       <Modal

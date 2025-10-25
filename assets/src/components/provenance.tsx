@@ -23,7 +23,6 @@ import {
   CopyOutlined,
 } from "@ant-design/icons";
 import { useSpring, animated } from "@react-spring/web";
-import { formatHashShort } from "../utils";
 import OtsViewer from "./ots-viewer";
 import { manifestAtomFamily, otsInfoAtomFamily } from "../state";
 
@@ -165,97 +164,54 @@ export default function Provenance({
 
     return (
       <div onClick={handleModalOpen} className="inline-block cursor-pointer">
-        <div
-          className={`relative px-4 py-3 rounded border-4 transition-all hover:scale-105 hover:shadow-lg min-w-[140px] ${
+        <Tooltip
+          title={
             isPending
-              ? "bg-orange-50 border-orange-400 shadow-orange-200"
-              : "bg-green-50 border-green-500 shadow-green-200"
-          }`}
-          style={{
-            borderStyle: "double",
-            boxShadow: isPending
-              ? "0 4px 12px rgba(250, 140, 22, 0.3)"
-              : "0 4px 12px rgba(82, 196, 26, 0.3)",
-          }}
+              ? "Pending verification"
+              : `Verified on Bitcoin block ${
+                  stampStatusObj?.results?.bitcoin.height
+                } on ${new Date(
+                  (stampStatusObj?.results?.bitcoin.timestamp || 0) * 1000
+                ).toLocaleDateString("en-US", {
+                  month: "short",
+                  day: "numeric",
+                  year: "numeric",
+                })}`
+          }
         >
-          {/* Corner decorations for stamp effect */}
-          <div
-            className="absolute top-1 left-1 w-2 h-2 border-t-2 border-l-2"
-            style={{
-              borderColor: isPending ? "#fa8c16" : "#52c41a",
-            }}
-          />
-          <div
-            className="absolute top-1 right-1 w-2 h-2 border-t-2 border-r-2"
-            style={{
-              borderColor: isPending ? "#fa8c16" : "#52c41a",
-            }}
-          />
-          <div
-            className="absolute bottom-1 left-1 w-2 h-2 border-b-2 border-l-2"
-            style={{
-              borderColor: isPending ? "#fa8c16" : "#52c41a",
-            }}
-          />
-          <div
-            className="absolute bottom-1 right-1 w-2 h-2 border-b-2 border-r-2"
-            style={{
-              borderColor: isPending ? "#fa8c16" : "#52c41a",
-            }}
-          />
-
-          <Space direction="vertical" size={2} className="w-full text-center">
-            {/* Bitcoin symbol + icon */}
-            <div
-              className={`text-2xl font-bold ${
-                isPending ? "text-orange-600" : "text-green-600"
-              }`}
-            >
-              {isLoading ? (
-                <Spin />
-              ) : isPending ? (
-                <ClockCircleOutlined />
-              ) : (
-                <SafetyCertificateOutlined />
-              )}
-            </div>
-
-            {/* Bitcoin branding */}
-            <Text
-              strong
-              className={`text-xs ${
-                isPending ? "text-orange-700" : "text-green-700"
-              }`}
-            >
-              ₿ BITCOIN
-            </Text>
-
-            {/* Status */}
-            <Tag
-              color={isPending ? "orange" : "green"}
-              className="text-xs font-bold m-0"
-            >
-              {isPending ? "PENDING" : "VERIFIED"}
-            </Tag>
-
-            {/* Block or Hash info */}
-            {(stampStatusObj?.sha256_hex || manifest?.artifact?.sha256_hex) && (
-              <Text className="text-[10px]! text-gray-600 break-all px-1">
-                {stampStatusObj?.results?.bitcoin ? (
-                  <>Block #{stampStatusObj.results.bitcoin.height}</>
+          <Tag
+            color={isPending ? "orange" : "green"}
+            className="relative transition-all hover:scale-105 px-1.5! py-1!"
+          >
+            <Space direction="vertical" size={0} className="w-full text-center">
+              {/* Bitcoin symbol + icon */}
+              <div
+                className={`text-base font-bold ${
+                  isPending ? "text-orange-600" : "text-green-600"
+                }`}
+              >
+                {isLoading ? (
+                  <Spin size="small" />
+                ) : isPending ? (
+                  <ClockCircleOutlined />
                 ) : (
-                  <>
-                    {formatHashShort(
-                      stampStatusObj?.sha256_hex ||
-                        manifest?.artifact?.sha256_hex ||
-                        ""
-                    )}
-                  </>
+                  <SafetyCertificateOutlined />
                 )}
-              </Text>
-            )}
-          </Space>
-        </div>
+              </div>
+
+              {/* Block or Hash info - only show if verified */}
+              {!isPending && stampStatusObj?.results?.bitcoin ? (
+                <Text strong className={`text-[10px]! text-green-700!`}>
+                  ₿{stampStatusObj.results.bitcoin.height}
+                </Text>
+              ) : (
+                <Text strong className={`text-[10px]! text-orange-700!`}>
+                  #{stampStatusObj?.sha256_hex?.slice(0, 6)}•
+                </Text>
+              )}
+            </Space>
+          </Tag>
+        </Tooltip>
       </div>
     );
   };

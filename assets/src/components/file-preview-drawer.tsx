@@ -19,12 +19,14 @@ interface FilePreviewDrawerProps {
   open: boolean;
   fileName: string | null;
   onClose: () => void;
+  isMobile?: boolean;
 }
 
 export default function FilePreviewDrawer({
   open,
   fileName,
   onClose,
+  isMobile = false,
 }: FilePreviewDrawerProps) {
   const fileUrl = fileName ? apiPath(fileName) : "";
   const fileExt = fileName?.split(".").pop()?.toLowerCase() || "";
@@ -235,8 +237,9 @@ export default function FilePreviewDrawer({
           <span>{fileName}</span>
         </Space>
       }
-      placement="right"
-      width={Math.min(window.innerWidth * 0.8, 1000)}
+      placement={isMobile ? "bottom" : "right"}
+      width={isMobile ? undefined : Math.min(window.innerWidth * 0.8, 1000)}
+      height={isMobile ? "85vh" : undefined}
       onClose={onClose}
       open={open}
       closeIcon={<CloseOutlined />}
@@ -248,7 +251,7 @@ export default function FilePreviewDrawer({
             href={fileUrl}
             download
           >
-            Download
+            {isMobile ? "" : "Download"}
           </Button>
           <Button
             type="text"
@@ -257,7 +260,7 @@ export default function FilePreviewDrawer({
             target="_blank"
             rel="noopener noreferrer"
           >
-            Open in New Tab
+            {isMobile ? "" : "Open in New Tab"}
           </Button>
         </Space>
       }
