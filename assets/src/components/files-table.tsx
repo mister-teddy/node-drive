@@ -26,6 +26,7 @@ import {
   DragOutlined,
   ShareAltOutlined,
   MoreOutlined,
+  EditOutlined,
 } from "@ant-design/icons";
 import { formatMtime, formatFileSize, formatDirSize, filePath } from "../utils";
 import Provenance from "./provenance";
@@ -84,12 +85,21 @@ export default function FilesTable({}: FilesTableProps) {
   // Mobile detection state
   const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
 
+  // Detect if we're in search mode
+  const searchParams = new URLSearchParams(location.search);
+  const isSearchMode = searchParams.has("q");
+
   // Helper function to get just the filename without path
   const getBasename = (name: string) => {
     if (name.includes("/")) {
       return name.substring(name.lastIndexOf("/") + 1);
     }
     return name;
+  };
+
+  // Helper function to get display name (full path in search, basename otherwise)
+  const getDisplayName = (name: string) => {
+    return isSearchMode ? name : getBasename(name);
   };
 
   const [previewFile, setPreviewFile] = useState<string | null>(null);
@@ -100,6 +110,9 @@ export default function FilesTable({}: FilesTableProps) {
   const [shareUrl, setShareUrl] = useState("");
   const [sharingFile, setSharingFile] = useState<PathItem | null>(null);
   const [loadingShare, setLoadingShare] = useState(false);
+  const [renameModalVisible, setRenameModalVisible] = useState(false);
+  const [renamingFile, setRenamingFile] = useState<PathItem | null>(null);
+  const [newFileName, setNewFileName] = useState("");
 
   // Handle window resize for mobile detection
   useEffect(() => {
@@ -208,16 +221,83 @@ export default function FilesTable({}: FilesTableProps) {
     });
   };
 
+  const handleRename = (file: PathItem) => {
+    const currentName = getBasename(file.name);
+    setRenamingFile(file);
+    setNewFileName(currentName);
+    setRenameModalVisible(true);
+  };
+
+  const performRename = async () => {
+    if (!renamingFile || !newFileName.trim()) return;
+
+    const currentName = getBasename(renamingFile.name);
+
+    // If name hasn't changed, just close modal
+    if (currentName === newFileName.trim()) {
+      setRenameModalVisible(false);
+      return;
+    }
+
+    try {
+      // Build the current file path (absolute)
+      let currentFilePath: string;
+      if (renamingFile.name.includes("/")) {
+        // Search results: file.name is like "PDFs/file.pdf"
+        currentFilePath = "/" + renamingFile.name;
+      } else {
+        // Normal directory view: file.name is just "file.pdf"
+        currentFilePath =
+          location.pathname +
+          (location.pathname.endsWith("/") ? "" : "/") +
+          renamingFile.name;
+      }
+
+      // Get the directory path from the current file path
+      const lastSlashIndex = currentFilePath.lastIndexOf("/");
+      const currentDir = currentFilePath.substring(0, lastSlashIndex + 1);
+
+      // Build the new path (same directory, new filename)
+      const newPath = currentDir + newFileName.trim();
+
+      // Build the destination URL (without /api prefix)
+      const destinationUrl = window.location.origin + newPath;
+
+      // Use moveFile atom to rename (renaming is moving to new name in same dir)
+      await moveFile({
+        fileName: currentFilePath,
+        destinationUrl: destinationUrl,
+      });
+
+      message.success(`Renamed to "${newFileName.trim()}"`);
+      setRenameModalVisible(false);
+      setRenamingFile(null);
+      setNewFileName("");
+    } catch (err) {
+      const error = err as Error;
+      Modal.error({
+        title: "Rename failed",
+        content: `Cannot rename "${currentName}": ${error.message}`,
+      });
+    }
+  };
+
   const handleMove = async (file: PathItem, newPath?: string | null) => {
-    // Extract just the filename, not the full relative path
-    // Use the last part of the path (filename only), or the full name if no slashes
-    const fileName = file.name.includes("/")
-      ? file.name.substring(file.name.lastIndexOf("/") + 1)
-      : file.name;
-    const currentFilePath =
-      location.pathname +
-      (location.pathname.endsWith("/") ? "" : "/") +
-      fileName;
+    // Build the current file path
+    // If file.name contains slashes (like in search results: "PDFs/file.pdf"),
+    // it's a path relative to root, so we prepend "/"
+    // Otherwise, it's relative to current location
+    let currentFilePath: string;
+    if (file.name.includes("/")) {
+      // Search results: file.name is like "PDFs/file.pdf"
+      currentFilePath = "/" + file.name;
+    } else {
+      // Normal directory view: file.name is just "file.pdf"
+      currentFilePath =
+        location.pathname +
+        (location.pathname.endsWith("/") ? "" : "/") +
+        file.name;
+    }
 
     const performMove = async (targetPath: string) => {
       if (!targetPath) return;
@@ -258,7 +338,7 @@ export default function FilesTable({}: FilesTableProps) {
             cancelText: "Cancel",
             onOk: async () => {
               try {
-                await moveFile({ fileName, destinationUrl });
+                await moveFile({ fileName: currentFilePath, destinationUrl });
                 // No need to manually refresh - the atom does it
               } catch (err) {
                 const error = err as Error;
@@ -272,7 +352,7 @@ export default function FilesTable({}: FilesTableProps) {
           return;
         }
 
-        await moveFile({ fileName, destinationUrl });
+        await moveFile({ fileName: currentFilePath, destinationUrl });
         // No need to manually refresh - the atom does it
       } catch (err) {
         const error = err as Error;
@@ -407,6 +487,11 @@ export default function FilesTable({}: FilesTableProps) {
       ? location.pathname
       : location.pathname + "/";
 
+    // Get just the basename of the dragged file (not full path)
+    const draggedFileName = getBasename(draggedFile.name);
+    // Get just the basename of the target folder (not full path)
+    const targetFolderName = getBasename(targetFolder.name);
+
     let newPath: string;
 
     // Handle ".." parent directory specially
@@ -414,9 +499,9 @@ export default function FilesTable({}: FilesTableProps) {
       // Navigate to parent directory
       const pathParts = currentPath.split("/").filter(Boolean);
       pathParts.pop(); // Remove current directory
-      newPath = "/" + pathParts.join("/") + "/" + draggedFile.name;
+      newPath = "/" + pathParts.join("/") + "/" + draggedFileName;
     } else {
-      newPath = currentPath + targetFolder.name + "/" + draggedFile.name;
+      newPath = currentPath + targetFolderName + "/" + draggedFileName;
     }
 
     try {
@@ -458,6 +543,12 @@ export default function FilesTable({}: FilesTableProps) {
     }
 
     if (permissions.allow_upload && permissions.allow_delete) {
+      items.push({
+        key: "rename",
+        icon: <EditOutlined />,
+        label: "Rename",
+        onClick: () => handleRename(file),
+      });
       items.push({
         key: "move",
         icon: <DragOutlined />,
@@ -538,11 +629,11 @@ export default function FilesTable({}: FilesTableProps) {
                         onClick={(e) => e.stopPropagation()}
                         className="text-sm font-medium text-blue-500 hover:text-blue-700 wrap-break-words"
                       >
-                        {getBasename(file.name)}
+                        {getDisplayName(file.name)}
                       </Link>
                     ) : (
                       <div className="text-sm font-medium text-gray-900 wrap-break-words">
-                        {getBasename(file.name)}
+                        {getDisplayName(file.name)}
                       </div>
                     )}
                   </div>
@@ -586,7 +677,7 @@ export default function FilesTable({}: FilesTableProps) {
       render: (name: string, file: PathItem) => {
         const isDir = file.path_type.endsWith("Dir");
         const path = filePath(file.name) + (isDir ? "/" : "");
-        const displayName = getBasename(name);
+        const displayName = getDisplayName(name);
 
         return (
           <Space>
@@ -677,14 +768,24 @@ export default function FilesTable({}: FilesTableProps) {
             )}
 
             {permissions.allow_upload && permissions.allow_delete && (
-              <Tooltip title="Move to new path">
-                <Button
-                  type="text"
-                  icon={<DragOutlined />}
-                  onClick={() => handleMove(file)}
-                  size="small"
-                />
-              </Tooltip>
+              <>
+                <Tooltip title="Rename">
+                  <Button
+                    type="text"
+                    icon={<EditOutlined />}
+                    onClick={() => handleRename(file)}
+                    size="small"
+                  />
+                </Tooltip>
+                <Tooltip title="Move to new path">
+                  <Button
+                    type="text"
+                    icon={<DragOutlined />}
+                    onClick={() => handleMove(file)}
+                    size="small"
+                  />
+                </Tooltip>
+              </>
             )}
 
             {permissions.allow_delete && (
@@ -785,6 +886,34 @@ export default function FilesTable({}: FilesTableProps) {
             </p>
           </div>
         )}
+      </Modal>
+
+      {/* Rename Modal */}
+      <Modal
+        title="Rename"
+        open={renameModalVisible}
+        onCancel={() => {
+          setRenameModalVisible(false);
+          setRenamingFile(null);
+          setNewFileName("");
+        }}
+        onOk={performRename}
+        okText="Rename"
+        cancelText="Cancel"
+      >
+        <div className="mb-4">
+          <p className="mb-2 text-gray-500">
+            Enter the new name for{" "}
+            <strong>{renamingFile && getBasename(renamingFile.name)}</strong>:
+          </p>
+          <Input
+            value={newFileName}
+            onChange={(e) => setNewFileName(e.target.value)}
+            onPressEnter={performRename}
+            placeholder="New file name"
+            autoFocus
+          />
+        </div>
       </Modal>
     </>
   );

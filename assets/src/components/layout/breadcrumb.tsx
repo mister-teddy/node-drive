@@ -1,6 +1,6 @@
 import { Breadcrumb as AntBreadcrumb } from "antd";
-import { HomeOutlined } from "@ant-design/icons";
-import { Link } from "react-router-dom";
+import { HomeOutlined, SearchOutlined } from "@ant-design/icons";
+import { Link, useLocation } from "react-router-dom";
 
 interface BreadcrumbItem {
   name: string;
@@ -14,6 +14,36 @@ interface BreadcrumbProps {
 }
 
 export function Breadcrumb({ href, uriPrefix }: BreadcrumbProps) {
+  const location = useLocation();
+  const searchParams = new URLSearchParams(location.search);
+  const searchQuery = searchParams.get("q");
+
+  // If we're in search mode, show search breadcrumb instead
+  if (searchQuery) {
+    const breadcrumbItems = [
+      {
+        title: (
+          <Link to={href} title="Root">
+            <HomeOutlined />
+          </Link>
+        ),
+      },
+      {
+        title: (
+          <span className="flex items-center gap-2">
+            <SearchOutlined />
+            <span className="font-medium">Search results for "{searchQuery}"</span>
+          </span>
+        ),
+      },
+    ];
+
+    return (
+      <div className="py-4 px-6">
+        <AntBreadcrumb items={breadcrumbItems} />
+      </div>
+    );
+  }
   const items: BreadcrumbItem[] = [];
 
   let parts: string[] = [];

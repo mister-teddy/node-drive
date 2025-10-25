@@ -358,14 +358,19 @@ export const deleteFileAtom = atom(
 
 // Move/rename file
 interface MoveFileParams {
-  fileName: string;
+  fileName: string; // Can be relative (like "file.pdf") or absolute (like "/PDFs/file.pdf")
   destinationUrl: string;
 }
 
 export const moveFileAtom = atom(
   null,
   async (_get, set, params: MoveFileParams) => {
-    const apiFileUrl = apiPath(params.fileName);
+    // If fileName starts with /, it's an absolute path, so just prepend /api
+    // Otherwise, use apiPath to resolve relative to current location
+    const apiFileUrl = params.fileName.startsWith("/")
+      ? "/api" + params.fileName
+      : apiPath(params.fileName);
+
     const response = await fetch(apiFileUrl, {
       method: "MOVE",
       headers: {
