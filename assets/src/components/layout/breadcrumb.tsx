@@ -18,32 +18,6 @@ export function Breadcrumb({ href, uriPrefix }: BreadcrumbProps) {
   const searchParams = new URLSearchParams(location.search);
   const searchQuery = searchParams.get("q");
 
-  // If we're in search mode, show search breadcrumb instead
-  if (searchQuery) {
-    const breadcrumbItems = [
-      {
-        title: (
-          <Link to={href} title="Root">
-            <HomeOutlined />
-          </Link>
-        ),
-      },
-      {
-        title: (
-          <span className="flex items-center gap-2">
-            <SearchOutlined />
-            <span className="font-medium">Search results for "{searchQuery}"</span>
-          </span>
-        ),
-      },
-    ];
-
-    return (
-      <div className="py-4 px-6">
-        <AntBreadcrumb items={breadcrumbItems} />
-      </div>
-    );
-  }
   const items: BreadcrumbItem[] = [];
 
   let parts: string[] = [];
@@ -93,6 +67,20 @@ export function Breadcrumb({ href, uriPrefix }: BreadcrumbProps) {
       title: <Link to={item.href}>{item.name}</Link>,
     };
   });
+
+  // If we're in search mode, append search results indicator
+  if (searchQuery) {
+    breadcrumbItems.push({
+      title: (
+        <span className="flex items-center gap-2">
+          <SearchOutlined />
+          <span className="font-medium">
+            Search results for: "{searchQuery}"
+          </span>
+        </span>
+      ),
+    });
+  }
 
   return (
     <div className="py-4 px-6">
