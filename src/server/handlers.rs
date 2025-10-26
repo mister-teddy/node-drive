@@ -1256,6 +1256,7 @@ impl Server {
                 mtime: 0,
                 size: 0,
                 stamp_status: None,
+                visibility: None,
             };
             paths.push(parent_item);
         }
@@ -1342,12 +1343,28 @@ impl Server {
             None
         };
 
+        // Get visibility status from provenance DB (only for files)
+        let visibility = if matches!(path_type, PathType::File | PathType::SymlinkFile) {
+            if let Some(path_str) = path.to_str() {
+                self.provenance_db
+                    .get_artifact_by_path(path_str)
+                    .ok()
+                    .flatten()
+                    .map(|(_, artifact)| artifact.visibility)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
         Ok(Some(PathItem {
             path_type,
             name,
             mtime,
             size,
             stamp_status,
+            visibility,
         }))
     }
 

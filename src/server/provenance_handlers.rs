@@ -589,6 +589,9 @@ pub async fn handle_create_share(
         }
     }
 
+    // Update file visibility to 'public' since we just created a share
+    let _ = provenance_db.update_file_visibility(file_path);
+
     // Return share info
     #[derive(Serialize)]
     struct ShareResponse {
@@ -906,8 +909,14 @@ pub async fn handle_delete_share(
         }
     }
 
+    // Get file path before deactivating the share
+    let file_path = share_info.file_path.clone();
+
     // Deactivate the share
     provenance_db.deactivate_share(share_id)?;
+
+    // Update file visibility - if this was the last share, file becomes private again
+    let _ = provenance_db.update_file_visibility(&file_path);
 
     #[derive(Serialize)]
     struct DeleteResponse {

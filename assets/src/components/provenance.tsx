@@ -184,25 +184,94 @@ export default function Provenance({
             className="relative transition-all hover:scale-105 px-1.5! py-1!"
           >
             <Space direction="vertical" size={0} className="w-full text-center">
-              {/* Bitcoin symbol + icon */}
-              <div
-                className={`text-base font-bold ${
-                  isPending ? "text-orange-600" : "text-green-600"
-                }`}
-              >
+              {/* Bitcoin shield badge - verified or pending */}
+              <div className="text-base font-bold">
                 {isLoading ? (
                   <Spin size="small" />
-                ) : isPending ? (
-                  <ClockCircleOutlined />
                 ) : (
-                  <SafetyCertificateOutlined />
+                  <div className="relative inline-flex items-center justify-center">
+                    {/* Shield background */}
+                    <svg
+                      width="24"
+                      height="28"
+                      viewBox="0 0 24 28"
+                      className="absolute"
+                      style={{
+                        filter: "drop-shadow(0 2px 4px rgba(0,0,0,0.15))",
+                      }}
+                    >
+                      <defs>
+                        <linearGradient
+                          id={
+                            isPending
+                              ? "shieldGradientPending"
+                              : "shieldGradientVerified"
+                          }
+                          x1="0%"
+                          y1="0%"
+                          x2="0%"
+                          y2="100%"
+                        >
+                          {isPending ? (
+                            <>
+                              <stop
+                                offset="0%"
+                                style={{ stopColor: "#fb923c", stopOpacity: 1 }}
+                              />
+                              <stop
+                                offset="100%"
+                                style={{ stopColor: "#f97316", stopOpacity: 1 }}
+                              />
+                            </>
+                          ) : (
+                            <>
+                              <stop
+                                offset="0%"
+                                style={{ stopColor: "#f97316", stopOpacity: 1 }}
+                              />
+                              <stop
+                                offset="100%"
+                                style={{ stopColor: "#ea580c", stopOpacity: 1 }}
+                              />
+                            </>
+                          )}
+                        </linearGradient>
+                      </defs>
+                      <path
+                        d="M12 2 L22 6 L22 14 C22 20 12 26 12 26 C12 26 2 20 2 14 L2 6 Z"
+                        fill={
+                          isPending
+                            ? "url(#shieldGradientPending)"
+                            : "url(#shieldGradientVerified)"
+                        }
+                        stroke={isPending ? "#ea580c" : "#c2410c"}
+                        strokeWidth="0.5"
+                      />
+                    </svg>
+                    {/* Icon on top of shield */}
+                    <span
+                      className="relative text-white font-bold z-10"
+                      style={{ marginTop: "2px" }}
+                    >
+                      {isPending ? (
+                        <ClockCircleOutlined className="text-[13px]" />
+                      ) : (
+                        <span
+                          className="text-[13px]"
+                          style={{ fontFamily: "monospace" }}
+                        >
+                          ₿
+                        </span>
+                      )}
+                    </span>
+                  </div>
                 )}
               </div>
 
               {/* Block or Hash info - only show if verified */}
               {!isPending && stampStatusObj?.results?.bitcoin ? (
                 <Text strong className={`text-[10px]! text-green-700!`}>
-                  ₿{stampStatusObj.results.bitcoin.height}
+                  {stampStatusObj.results.bitcoin.height.toLocaleString()}
                 </Text>
               ) : (
                 <Text strong className={`text-[10px]! text-orange-700!`}>

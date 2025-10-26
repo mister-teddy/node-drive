@@ -8,6 +8,7 @@ export interface PathItem {
   mtime: number;
   size: number;
   sha256?: string;
+  visibility?: "private" | "public";
   provenance?: {
     events: Array<Record<string, unknown>>;
   };
@@ -310,6 +311,37 @@ export const fileContentAtomFamily = atomFamily((fileName: string) =>
 
 // ----- Mutation Atoms -----
 
+// Share info types
+export interface ShareInfoItem {
+  share_id: string;
+  share_url: string;
+  created_at: string;
+  shared_by: string | null;
+  owner_pubkey: string;
+  downloads: number;
+}
+
+interface ShareInfoResult {
+  success: boolean;
+  shares: ShareInfoItem[];
+}
+
+// Get share info for a file
+export const getShareInfoAtom = atom(
+  null,
+  async (_get, _set, fileName: string) => {
+    const url = apiPath(fileName) + "?share_info";
+    const response = await fetch(url);
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    const data: ShareInfoResult = await response.json();
+    return data;
+  }
+);
+
 // Create share link
 interface ShareLinkResult {
   success: boolean;
@@ -318,7 +350,7 @@ interface ShareLinkResult {
 
 export const createShareLinkAtom = atom(
   null,
-  async (_get, _set, fileName: string) => {
+  async (_get, set, fileName: string) => {
     const url = apiPath(fileName) + "?share";
     const response = await fetch(url, {
       method: "POST",
@@ -334,7 +366,28 @@ export const createShareLinkAtom = atom(
       throw new Error("Failed to create share link");
     }
 
+    // Refresh main data to update visibility
+    set(dataAtom);
+
     return data;
+  }
+);
+
+// Delete share link
+export const deleteShareLinkAtom = atom(
+  null,
+  async (_get, set, shareId: string) => {
+    const url = `/share/${shareId}`;
+    const response = await fetch(url, {
+      method: "DELETE",
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    // Refresh main data to update visibility
+    set(dataAtom);
   }
 );
 

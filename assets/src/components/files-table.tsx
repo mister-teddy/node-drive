@@ -15,22 +15,26 @@ import {
 import type { ColumnsType } from "antd/es/table";
 import type { MenuProps } from "antd";
 import {
-  FolderOutlined,
-  FileOutlined,
-  FileTextOutlined,
-  FileImageOutlined,
-  FileZipOutlined,
-  FileMarkdownOutlined,
+  FileFilled,
+  FileTextFilled,
+  FileImageFilled,
+  FileZipFilled,
+  FileMarkdownFilled,
+  FilePdfFilled,
+  FileExcelFilled,
+  FileWordFilled,
+  FilePptFilled,
   DownloadOutlined,
   DeleteOutlined,
   DragOutlined,
   ShareAltOutlined,
   MoreOutlined,
   EditOutlined,
+  FolderFilled,
 } from "@ant-design/icons";
 import { formatMtime, formatFileSize, formatDirSize, filePath } from "../utils";
 import Provenance from "./provenance";
-import { Link } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import FilePreviewDrawer from "./file-preview-drawer";
 import { useAtomValue, useSetAtom } from "jotai";
 import {
@@ -41,6 +45,9 @@ import {
   deleteFileAtom,
   moveFileAtom,
   checkFileExistsAtom,
+  getShareInfoAtom,
+  deleteShareLinkAtom,
+  type ShareInfoItem,
 } from "../state";
 
 export interface PathItem {
@@ -49,6 +56,7 @@ export interface PathItem {
   mtime: number;
   size: number;
   sha256?: string;
+  visibility?: "private" | "public";
   provenance?: {
     events: Array<Record<string, unknown>>;
   };
@@ -68,6 +76,9 @@ export interface PathItem {
 interface FilesTableProps {}
 
 export default function FilesTable({}: FilesTableProps) {
+  // Router navigation
+  const navigate = useNavigate();
+
   // Use focused atoms for better performance
   const paths = useAtomValue(pathsAtom);
   const permissions = useAtomValue(permissionsAtom);
@@ -78,6 +89,8 @@ export default function FilesTable({}: FilesTableProps) {
   const deleteFile = useSetAtom(deleteFileAtom);
   const moveFile = useSetAtom(moveFileAtom);
   const checkFileExists = useSetAtom(checkFileExistsAtom);
+  const getShareInfo = useSetAtom(getShareInfoAtom);
+  const deleteShareLink = useSetAtom(deleteShareLinkAtom);
 
   // Check if data is loading from any source
   const isLoading = loadableData.state === "loading";
@@ -110,6 +123,8 @@ export default function FilesTable({}: FilesTableProps) {
   const [shareUrl, setShareUrl] = useState("");
   const [sharingFile, setSharingFile] = useState<PathItem | null>(null);
   const [loadingShare, setLoadingShare] = useState(false);
+  const [existingShares, setExistingShares] = useState<ShareInfoItem[]>([]);
+  const [loadingShareInfo, setLoadingShareInfo] = useState(false);
   const [renameModalVisible, setRenameModalVisible] = useState(false);
   const [renamingFile, setRenamingFile] = useState<PathItem | null>(null);
   const [newFileName, setNewFileName] = useState("");
@@ -127,29 +142,62 @@ export default function FilesTable({}: FilesTableProps) {
   const getFileIcon = (file: PathItem) => {
     const isDir = file.path_type.endsWith("Dir");
     if (isDir) {
-      return <FolderOutlined className="text-lg text-blue-500" />;
+      return <FolderFilled style={{ color: "#3b82f6", fontSize: 24 }} />;
     }
 
     const ext = file.name.split(".").pop()?.toLowerCase() || "";
 
+    // All file icons in gray for consistency
+    const iconClass = "text-lg text-gray-400";
+
     // Images
-    if (["jpg", "jpeg", "png", "gif", "svg", "webp", "bmp"].includes(ext)) {
-      return <FileImageOutlined className="text-lg text-green-500" />;
+    if (
+      ["jpg", "jpeg", "png", "gif", "svg", "webp", "bmp", "ico"].includes(ext)
+    ) {
+      return <FileImageFilled className={iconClass} />;
+    }
+    // PDF
+    if (ext === "pdf") {
+      return <FilePdfFilled className={iconClass} />;
+    }
+    // Excel
+    if (["xls", "xlsx", "csv"].includes(ext)) {
+      return <FileExcelFilled className={iconClass} />;
+    }
+    // Word
+    if (["doc", "docx"].includes(ext)) {
+      return <FileWordFilled className={iconClass} />;
+    }
+    // PowerPoint
+    if (["ppt", "pptx"].includes(ext)) {
+      return <FilePptFilled className={iconClass} />;
     }
     // Archives
-    if (["zip", "rar", "7z", "tar", "gz"].includes(ext)) {
-      return <FileZipOutlined className="text-lg text-orange-500" />;
+    if (["zip", "rar", "7z", "tar", "gz", "bz2"].includes(ext)) {
+      return <FileZipFilled className={iconClass} />;
     }
     // Markdown
     if (["md", "markdown"].includes(ext)) {
-      return <FileMarkdownOutlined className="text-lg text-purple-600" />;
+      return <FileMarkdownFilled className={iconClass} />;
     }
-    // Text
-    if (["txt", "json", "xml", "yaml", "yml"].includes(ext)) {
-      return <FileTextOutlined className="text-lg text-gray-500" />;
+    // Text/Code
+    if (
+      [
+        "txt",
+        "json",
+        "xml",
+        "yaml",
+        "yml",
+        "log",
+        "ini",
+        "cfg",
+        "conf",
+      ].includes(ext)
+    ) {
+      return <FileTextFilled className={iconClass} />;
     }
 
-    return <FileOutlined className="text-lg text-gray-300" />;
+    return <FileFilled className={iconClass} />;
   };
 
   const renderVerificationStamps = (file: PathItem) => {
@@ -165,25 +213,44 @@ export default function FilesTable({}: FilesTableProps) {
 
   const handleShare = async (file: PathItem) => {
     setSharingFile(file);
-    setLoadingShare(true);
+    setLoadingShareInfo(true);
+    setExistingShares([]);
+    setShareUrl("");
 
     try {
-      const data = await createShareLink(file.name);
+      // First, check if there are existing shares
+      const shareInfo = await getShareInfo(file.name);
 
-      if (data.success && data.share_url) {
-        // Create full URL with current origin
-        const fullShareUrl = window.location.origin + data.share_url;
+      if (shareInfo.success && shareInfo.shares.length > 0) {
+        // Existing share(s) found - show the first one
+        const firstShare = shareInfo.shares[0];
+        const fullShareUrl = window.location.origin + firstShare.share_url;
         setShareUrl(fullShareUrl);
+        setExistingShares(shareInfo.shares);
         setShareModalVisible(true);
-        message.success("Share link created successfully!");
       } else {
-        throw new Error("Failed to create share link");
+        // No existing shares - create a new one
+        setLoadingShare(true);
+        const data = await createShareLink(file.name);
+
+        if (data.success && data.share_url) {
+          // Create full URL with current origin
+          const fullShareUrl = window.location.origin + data.share_url;
+          setShareUrl(fullShareUrl);
+          setExistingShares([]);
+          setShareModalVisible(true);
+          message.success("Share link created successfully!");
+        } else {
+          throw new Error("Failed to create share link");
+        }
+        setLoadingShare(false);
       }
     } catch (err) {
       const error = err as Error;
       message.error(`Cannot create share link: ${error.message}`);
-    } finally {
       setLoadingShare(false);
+    } finally {
+      setLoadingShareInfo(false);
     }
   };
 
@@ -196,6 +263,29 @@ export default function FilesTable({}: FilesTableProps) {
       .catch(() => {
         message.error("Failed to copy link");
       });
+  };
+
+  const handleDeleteShareLink = async (shareId: string) => {
+    Modal.confirm({
+      title: "Remove share link",
+      content:
+        "Are you sure you want to remove this share link? People with this link will no longer be able to access the file.",
+      okText: "Remove",
+      okType: "danger",
+      cancelText: "Cancel",
+      onOk: async () => {
+        try {
+          await deleteShareLink(shareId);
+          message.success("Share link removed successfully");
+          setShareModalVisible(false);
+          setShareUrl("");
+          setExistingShares([]);
+        } catch (err) {
+          const error = err as Error;
+          message.error(`Failed to remove share link: ${error.message}`);
+        }
+      },
+    });
   };
 
   const handleDelete = async (file: PathItem) => {
@@ -511,28 +601,86 @@ export default function FilesTable({}: FilesTableProps) {
     }
   };
 
-  // Get actions menu for mobile view
+  // Get actions menu for desktop (includes Download as first item)
   const getActionsMenu = (file: PathItem): MenuProps["items"] => {
     const isDir = file.path_type.endsWith("Dir");
     const path = filePath(file.name) + (isDir ? "/" : "");
+    const items: MenuProps["items"] = [];
 
-    const items: MenuProps["items"] = [
-      {
-        key: "download",
-        icon: <DownloadOutlined />,
-        label: (
-          <a
-            href={
-              path + (isDir && permissions.allow_archive ? "?zip" : "?download")
-            }
-            download
-          >
-            {isDir ? "Download as zip" : "Download"}
-          </a>
-        ),
-      },
-    ];
+    // Download (first item)
+    items.push({
+      key: "download",
+      icon: <DownloadOutlined />,
+      label: (
+        <a
+          href={
+            path + (isDir && permissions.allow_archive ? "?zip" : "?download")
+          }
+          download
+          onClick={(e) => e.stopPropagation()}
+        >
+          {isDir ? "Download as zip" : "Download"}
+        </a>
+      ),
+    });
 
+    if (permissions.allow_upload && permissions.allow_delete) {
+      items.push({
+        key: "rename",
+        icon: <EditOutlined />,
+        label: "Rename",
+        onClick: () => {
+          handleRename(file);
+        },
+      });
+      items.push({
+        key: "move",
+        icon: <DragOutlined />,
+        label: "Move",
+        onClick: () => {
+          handleMove(file);
+        },
+      });
+    }
+
+    if (permissions.allow_delete) {
+      items.push({
+        key: "delete",
+        icon: <DeleteOutlined />,
+        label: "Delete",
+        danger: true,
+        onClick: () => {
+          handleDelete(file);
+        },
+      });
+    }
+
+    return items;
+  };
+
+  // Get complete actions menu for mobile (includes all actions)
+  const getMobileActionsMenu = (file: PathItem): MenuProps["items"] => {
+    const isDir = file.path_type.endsWith("Dir");
+    const path = filePath(file.name) + (isDir ? "/" : "");
+    const items: MenuProps["items"] = [];
+
+    // Download
+    items.push({
+      key: "download",
+      icon: <DownloadOutlined />,
+      label: (
+        <a
+          href={
+            path + (isDir && permissions.allow_archive ? "?zip" : "?download")
+          }
+          download
+        >
+          {isDir ? "Download as zip" : "Download"}
+        </a>
+      ),
+    });
+
+    // Share (files only)
     if (!isDir) {
       items.push({
         key: "share",
@@ -542,6 +690,7 @@ export default function FilesTable({}: FilesTableProps) {
       });
     }
 
+    // Rename and Move
     if (permissions.allow_upload && permissions.allow_delete) {
       items.push({
         key: "rename",
@@ -557,6 +706,7 @@ export default function FilesTable({}: FilesTableProps) {
       });
     }
 
+    // Delete
     if (permissions.allow_delete) {
       items.push({
         key: "delete",
@@ -585,7 +735,9 @@ export default function FilesTable({}: FilesTableProps) {
                 className="h-full flex flex-col relative"
                 styles={{ body: { padding: "12px" } }}
                 onClick={() => {
-                  if (!isDir) {
+                  if (isDir) {
+                    navigate(path);
+                  } else {
                     handleFileClick(file);
                   }
                 }}
@@ -596,7 +748,7 @@ export default function FilesTable({}: FilesTableProps) {
                   onClick={(e) => e.stopPropagation()}
                 >
                   <Dropdown
-                    menu={{ items: getActionsMenu(file) }}
+                    menu={{ items: getMobileActionsMenu(file) }}
                     trigger={["click"]}
                   >
                     <Button
@@ -611,31 +763,13 @@ export default function FilesTable({}: FilesTableProps) {
                 {/* Card content */}
                 <div className="flex flex-col items-center text-center">
                   {/* Icon */}
-                  <div className="text-5xl mb-2">
-                    {isDir ? (
-                      <Link to={path} onClick={(e) => e.stopPropagation()}>
-                        {getFileIcon(file)}
-                      </Link>
-                    ) : (
-                      getFileIcon(file)
-                    )}
-                  </div>
+                  <div className="text-5xl mb-2">{getFileIcon(file)}</div>
 
                   {/* File name */}
                   <div className="w-full wrap-break-words overflow-hidden">
-                    {isDir ? (
-                      <Link
-                        to={path}
-                        onClick={(e) => e.stopPropagation()}
-                        className="text-sm font-medium text-blue-500 hover:text-blue-700 wrap-break-words"
-                      >
-                        {getDisplayName(file.name)}
-                      </Link>
-                    ) : (
-                      <div className="text-sm font-medium text-gray-900 wrap-break-words">
-                        {getDisplayName(file.name)}
-                      </div>
-                    )}
+                    <div className="text-sm font-medium text-gray-900 wrap-break-words">
+                      {getDisplayName(file.name)}
+                    </div>
                   </div>
 
                   {/* Metadata */}
@@ -668,6 +802,26 @@ export default function FilesTable({}: FilesTableProps) {
     </div>
   );
 
+  // Sort paths: directories first, then public files, then private files
+  const sortedPaths = [...paths].sort((a, b) => {
+    const aIsDir = a.path_type.endsWith("Dir");
+    const bIsDir = b.path_type.endsWith("Dir");
+    const aIsPublic = a.visibility === "public";
+    const bIsPublic = b.visibility === "public";
+
+    // Directories always first
+    if (aIsDir && !bIsDir) return -1;
+    if (!aIsDir && bIsDir) return 1;
+
+    // Among files: public before private
+    if (!aIsDir && !bIsDir) {
+      if (aIsPublic && !bIsPublic) return -1;
+      if (!aIsPublic && bIsPublic) return 1;
+    }
+
+    return 0;
+  });
+
   const columns: ColumnsType<PathItem> = [
     {
       title: "Name",
@@ -675,45 +829,69 @@ export default function FilesTable({}: FilesTableProps) {
       key: "name",
       ellipsis: true,
       render: (name: string, file: PathItem) => {
-        const isDir = file.path_type.endsWith("Dir");
-        const path = filePath(file.name) + (isDir ? "/" : "");
         const displayName = getDisplayName(name);
 
         return (
           <Space>
-            {getFileIcon(file)}
-            {isDir ? (
-              <Link to={path} className="text-blue-500 font-medium">
-                {displayName}
-              </Link>
-            ) : (
-              <a
-                onClick={(e) => {
-                  e.preventDefault();
-                  handleFileClick(file);
-                }}
-                className="text-blue-500 font-medium cursor-pointer"
-              >
-                {displayName}
-              </a>
-            )}
+            <div className="w-6 h-6 flex justify-center items-center">
+              {getFileIcon(file)}
+            </div>
+            <span className="text-gray-900">{displayName}</span>
           </Space>
         );
+      },
+      onCell: (record: PathItem) => {
+        const isFolder = record.path_type.endsWith("Dir");
+        const path = filePath(record.name) + (isFolder ? "/" : "");
+
+        return {
+          onClick: () => {
+            if (isFolder) {
+              navigate(path);
+            } else {
+              handleFileClick(record);
+            }
+          },
+          className: "cursor-pointer",
+        };
       },
     },
     {
       title: "Verification",
       key: "verification",
       width: 150,
+      align: "center",
       render: (_: unknown, file: PathItem) => {
         const isDir = file.path_type.endsWith("Dir");
         return !isDir ? renderVerificationStamps(file) : null;
       },
     },
     {
+      title: "Who can access",
+      key: "visibility",
+      width: 160,
+      align: "center",
+      render: (_: unknown, file: PathItem) => {
+        const isDir = file.path_type.endsWith("Dir");
+        if (isDir) return null;
+
+        const visibility = file.visibility || "private";
+        return (
+          <span
+            className={
+              visibility === "public" ? "text-green-600" : "text-gray-500"
+            }
+          >
+            {visibility === "public" ? "Anyone with the link" : "Only you"}
+          </span>
+        );
+      },
+    },
+    {
       title: "Size",
       key: "size",
       width: 120,
+      align: "right",
       render: (_: unknown, file: PathItem) => {
         const isDir = file.path_type.endsWith("Dir");
         const sizeDisplay = isDir
@@ -727,6 +905,7 @@ export default function FilesTable({}: FilesTableProps) {
       dataIndex: "mtime",
       key: "mtime",
       width: 180,
+      align: "right",
       render: (mtime: number) => (
         <span className="text-gray-500">{formatMtime(mtime)}</span>
       ),
@@ -734,70 +913,47 @@ export default function FilesTable({}: FilesTableProps) {
     {
       title: "Actions",
       key: "actions",
-      width: 150,
+      width: 120,
+      align: "right",
       fixed: true,
       render: (_: unknown, file: PathItem) => {
         const isDir = file.path_type.endsWith("Dir");
-        const path = filePath(file.name) + (isDir ? "/" : "");
+
+        // Build actions menu items
+        const menuItems = getActionsMenu(file);
 
         return (
-          <Space>
-            <Tooltip title={isDir ? "Download folder as zip" : "Download file"}>
-              <Button
-                type="text"
-                icon={<DownloadOutlined />}
-                href={
-                  path +
-                  (isDir && permissions.allow_archive ? "?zip" : "?download")
-                }
-                download
-                size="small"
-              />
-            </Tooltip>
-
+          <Space size="small" align="end">
+            {/* Only Share button visible (files only) */}
             {!isDir && (
-              <Tooltip title="Share file">
+              <Tooltip title="Share">
                 <Button
                   type="text"
                   icon={<ShareAltOutlined />}
-                  onClick={() => handleShare(file)}
-                  loading={loadingShare && sharingFile?.name === file.name}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleShare(file);
+                  }}
+                  loading={
+                    (loadingShare || loadingShareInfo) &&
+                    sharingFile?.name === file.name
+                  }
                   size="small"
                 />
               </Tooltip>
             )}
 
-            {permissions.allow_upload && permissions.allow_delete && (
-              <>
-                <Tooltip title="Rename">
-                  <Button
-                    type="text"
-                    icon={<EditOutlined />}
-                    onClick={() => handleRename(file)}
-                    size="small"
-                  />
-                </Tooltip>
-                <Tooltip title="Move to new path">
-                  <Button
-                    type="text"
-                    icon={<DragOutlined />}
-                    onClick={() => handleMove(file)}
-                    size="small"
-                  />
-                </Tooltip>
-              </>
-            )}
-
-            {permissions.allow_delete && (
-              <Tooltip title="Delete">
+            {/* More actions menu (always visible, includes Download) */}
+            {menuItems && menuItems.length > 0 && (
+              <Dropdown menu={{ items: menuItems }} trigger={["click"]}>
                 <Button
                   type="text"
-                  danger
-                  icon={<DeleteOutlined />}
-                  onClick={() => handleDelete(file)}
+                  icon={<MoreOutlined />}
+                  onClick={(e) => e.stopPropagation()}
                   size="small"
+                  className="hover:bg-gray-100"
                 />
-              </Tooltip>
+              </Dropdown>
             )}
           </Space>
         );
@@ -814,7 +970,7 @@ export default function FilesTable({}: FilesTableProps) {
         <Table
           loading={isLoading}
           columns={columns}
-          dataSource={paths}
+          dataSource={sortedPaths}
           rowKey="name"
           tableLayout="fixed"
           pagination={false}
@@ -832,7 +988,7 @@ export default function FilesTable({}: FilesTableProps) {
               onDragLeave: handleDragLeave,
               onDrop: (e) => handleDrop(e, record),
               className: `transition-all duration-200 ease-in-out ${
-                isDragging ? "cursor-grabbing opacity-50" : "cursor-grab"
+                isDragging ? "opacity-50" : ""
               } ${
                 isDropTarget && isFolder
                   ? "bg-blue-50 border-l-[3px] border-l-blue-500"
@@ -853,20 +1009,51 @@ export default function FilesTable({}: FilesTableProps) {
       <Modal
         title="Share File"
         open={shareModalVisible}
-        onCancel={() => setShareModalVisible(false)}
+        onCancel={() => {
+          setShareModalVisible(false);
+          setShareUrl("");
+          setExistingShares([]);
+        }}
         footer={[
+          existingShares.length > 0 && (
+            <Button
+              key="remove"
+              danger
+              onClick={() => handleDeleteShareLink(existingShares[0].share_id)}
+            >
+              Remove Link
+            </Button>
+          ),
           <Button key="copy" type="primary" onClick={handleCopyShareLink}>
             Copy Link
           </Button>,
-          <Button key="close" onClick={() => setShareModalVisible(false)}>
+          <Button
+            key="close"
+            onClick={() => {
+              setShareModalVisible(false);
+              setShareUrl("");
+              setExistingShares([]);
+            }}
+          >
             Close
           </Button>,
         ]}
       >
         <div className="mb-4">
-          <p className="mb-2 text-gray-500">
-            Share this link to allow others to download the file:
-          </p>
+          {existingShares.length > 0 ? (
+            <>
+              <p className="mb-2 text-gray-700 font-medium">
+                This file is already shared
+              </p>
+              <p className="mb-2 text-gray-500 text-sm">
+                Anyone with this link can download the file:
+              </p>
+            </>
+          ) : (
+            <p className="mb-2 text-gray-500">
+              Share this link to allow others to download the file:
+            </p>
+          )}
           <Input
             value={shareUrl}
             readOnly
@@ -874,10 +1061,24 @@ export default function FilesTable({}: FilesTableProps) {
             className="font-mono text-xs"
           />
         </div>
+
+        {/* Share statistics for existing shares */}
+        {existingShares.length > 0 && existingShares[0] && (
+          <div className="mb-4 p-3 bg-blue-50 rounded border border-blue-200">
+            <p className="m-0 text-sm text-gray-700">
+              <strong>Created:</strong>{" "}
+              {new Date(existingShares[0].created_at).toLocaleString()}
+            </p>
+            <p className="mt-1 mb-0 text-sm text-gray-700">
+              <strong>Downloads:</strong> {existingShares[0].downloads}
+            </p>
+          </div>
+        )}
+
         {sharingFile && (
           <div className="mt-4 p-3 bg-gray-100 rounded">
             <p className="m-0 text-xs text-gray-600">
-              <strong>File:</strong> {sharingFile.name}
+              <strong>File:</strong> {getBasename(sharingFile.name)}
             </p>
             <p className="mt-1 mb-0 text-xs text-gray-600">
               <strong>Note:</strong> Anyone with this link can download the

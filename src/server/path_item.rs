@@ -57,6 +57,8 @@ pub struct PathItem {
     pub size: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stamp_status: Option<StampStatus>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub visibility: Option<String>, // "private" or "public"
 }
 
 impl PathItem {

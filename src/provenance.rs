@@ -34,6 +34,8 @@ pub struct Artifact {
     pub verified_height: Option<u64>,
     #[serde(skip)]
     pub last_check_at: Option<String>,
+    #[serde(skip)]
+    pub visibility: String, // "private" or "public"
 }
 
 /// Provenance event following provenance.event/v1 spec
@@ -121,7 +123,8 @@ impl ProvenanceDb {
                 verified_chain TEXT,
                 verified_timestamp INTEGER,
                 verified_height INTEGER,
-                last_check_at TEXT
+                last_check_at TEXT,
+                visibility TEXT NOT NULL DEFAULT 'private' CHECK(visibility IN ('private', 'public'))
             )",
             [],
         )?;
@@ -273,7 +276,7 @@ impl ProvenanceDb {
         let conn = self.conn.lock().unwrap();
 
         let mut stmt = conn.prepare(
-            "SELECT id, file_path, sha256_hex, verified_chain, verified_timestamp, verified_height, last_check_at
+            "SELECT id, file_path, sha256_hex, verified_chain, verified_timestamp, verified_height, last_check_at, visibility
              FROM artifacts WHERE file_path = ?1"
         )?;
 
@@ -287,6 +290,7 @@ impl ProvenanceDb {
             let verified_timestamp: Option<i64> = row.get(4)?;
             let verified_height: Option<i64> = row.get(5)?;
             let last_check_at: Option<String> = row.get(6)?;
+            let visibility: String = row.get(7).unwrap_or_else(|_| "private".to_string());
 
             let artifact = Artifact {
                 file_path: PathBuf::from(file_path_str),
@@ -295,6 +299,7 @@ impl ProvenanceDb {
                 verified_timestamp,
                 verified_height: verified_height.map(|h| h as u64),
                 last_check_at,
+                visibility,
             };
             Ok(Some((id, artifact)))
         } else {
@@ -773,6 +778,34 @@ impl ProvenanceDb {
         }
 
         Ok(downloads)
+    }
+
+    /// Update file visibility based on active shares
+    /// This is called automatically when shares are created or deleted
+    pub fn update_file_visibility(&self, file_path: &str) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+
+        // Count active shares for this file
+        let active_shares: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM shares WHERE file_path = ?1 AND is_active = 1",
+            params![file_path],
+            |row| row.get(0),
+        )?;
+
+        // Determine visibility based on share count
+        let visibility = if active_shares > 0 {
+            "public"
+        } else {
+            "private"
+        };
+
+        // Update artifact visibility (or create artifact if it doesn't exist)
+        conn.execute(
+            "UPDATE artifacts SET visibility = ?1 WHERE file_path = ?2",
+            params![visibility, file_path],
+        )?;
+
+        Ok(())
     }
 }
 
