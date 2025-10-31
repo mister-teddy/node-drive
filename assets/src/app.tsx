@@ -1,7 +1,7 @@
-import { Suspense, useEffect } from "react";
+import { Suspense } from "react";
 import { Flex, Layout, Typography, Spin, Modal, Input } from "antd";
 import { useLocation, useNavigate, Routes, Route } from "react-router-dom";
-import { useAtomValue, useSetAtom } from "jotai";
+import { useAtomValue } from "jotai";
 import FilesTable from "./components/files-table";
 import { Header } from "./components/layout/header";
 import { Breadcrumb } from "./components/layout/breadcrumb";
@@ -9,66 +9,20 @@ import UppyUploader from "./components/uppy-uploader";
 import SharePage from "./components/share-page";
 import { filePickerTriggerAtom } from "./state/uppy";
 import { apiPath } from "./utils";
-import {
-  currentLocationAtom,
-  dataAtom,
-  metadataAtom,
-  authAtom,
-  permissionsAtom,
-} from "./state/rest";
+import { lsdirDataAtom } from "./state/drive";
 
 const { Content } = Layout;
 
-// Re-export types for components
-export type { PathItem, DATA } from "./state/rest";
-
 // Main content component wrapped in Suspense
 function AppContent() {
-  // Use focused atoms for better granularity
-  const metadata = useAtomValue(metadataAtom);
-  const auth = useAtomValue(authAtom);
-  const permissions = useAtomValue(permissionsAtom);
-  const refreshData = useSetAtom(dataAtom);
-
-  const location = useLocation();
   const navigate = useNavigate();
-  const setLocation = useSetAtom(currentLocationAtom);
+  const location = useLocation();
+  const metadata = useAtomValue(lsdirDataAtom(location.pathname));
   const filePickerTrigger = useAtomValue(filePickerTriggerAtom);
-
-  // Sync location changes to Jotai state
-  useEffect(() => {
-    setLocation({
-      pathname: location.pathname,
-      search: location.search,
-    });
-  }, [location.pathname, location.search, setLocation]);
-
-  const checkAuth = async (variant?: string) => {
-    if (!auth?.auth) return;
-    const qs = variant ? `?${variant}` : "";
-    const res = await fetch(apiPath() + qs, {
-      method: "CHECKAUTH",
-    });
-    if (!(res.status >= 200 && res.status < 300)) {
-      throw new Error((await res.text()) || `Invalid status ${res.status}`);
-    }
-  };
-
-  const logout = () => {
-    if (!auth?.auth) return;
-    const url = apiPath();
-    const xhr = new XMLHttpRequest();
-    xhr.open("LOGOUT", url, true, auth.user);
-    xhr.onload = () => {
-      navigate("/");
-    };
-    xhr.send();
-  };
 
   const createFolder = async (name: string) => {
     const url = apiPath(name);
     try {
-      await checkAuth();
       const res = await fetch(url, {
         method: "MKCOL",
       });
@@ -99,21 +53,10 @@ function AppContent() {
         element={
           <Layout className="h-screen bg-gray-100">
             <Header
-              auth={auth.auth}
-              user={auth.user}
-              allowUpload={permissions.allow_upload}
-              allowSearch={permissions.allow_search}
               onSearch={(query: string) => {
                 const href = location.pathname;
                 navigate(query ? `${href}?q=${query}` : href);
               }}
-              onLogin={async () => {
-                try {
-                  await checkAuth("login");
-                } catch {}
-                refreshData();
-              }}
-              onLogout={logout}
               onNewFolder={() => {
                 let folderName = "";
                 Modal.confirm({
@@ -161,14 +104,12 @@ function AppContent() {
               {metadata.kind === "Index" && (
                 <>
                   <FilesTable />
-                  {permissions.allow_upload && (
-                    <UppyUploader
-                      auth={auth.auth}
-                      onAuthRequired={async () => {
-                        await checkAuth();
-                      }}
-                    />
-                  )}
+                  <UppyUploader
+                    auth={false}
+                    onAuthRequired={async () => {
+                      debugger;
+                    }}
+                  />
                 </>
               )}
             </Content>

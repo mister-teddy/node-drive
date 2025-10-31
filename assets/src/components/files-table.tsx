@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useTransition } from "react";
 import {
   Table,
   Button,
@@ -34,13 +34,10 @@ import {
 } from "@ant-design/icons";
 import { formatMtime, formatFileSize, formatDirSize, filePath } from "../utils";
 import Provenance from "./provenance";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import FilePreviewDrawer from "./file-preview-drawer";
 import { useAtomValue, useSetAtom } from "jotai";
 import {
-  pathsAtom,
-  permissionsAtom,
-  loadableDataAtom,
   createShareLinkAtom,
   deleteFileAtom,
   moveFileAtom,
@@ -49,6 +46,7 @@ import {
   deleteShareLinkAtom,
   type ShareInfoItem,
 } from "../state/rest";
+import { lsdirAtom, useRefreshData } from "../state/drive";
 
 export interface PathItem {
   path_type: "Dir" | "SymlinkDir" | "File" | "SymlinkFile";
@@ -78,11 +76,13 @@ interface FilesTableProps {}
 export default function FilesTable({}: FilesTableProps) {
   // Router navigation
   const navigate = useNavigate();
+  const location = useLocation();
 
   // Use focused atoms for better performance
-  const paths = useAtomValue(pathsAtom);
-  const permissions = useAtomValue(permissionsAtom);
-  const loadableData = useAtomValue(loadableDataAtom);
+  const paths = useAtomValue(lsdirAtom(location.pathname));
+  const [isLoading, startTransition] = useTransition();
+  const refreshData = useRefreshData();
+  const refresh = () => startTransition(refreshData);
 
   // Mutation atoms
   const createShareLink = useSetAtom(createShareLinkAtom);
@@ -91,9 +91,6 @@ export default function FilesTable({}: FilesTableProps) {
   const checkFileExists = useSetAtom(checkFileExistsAtom);
   const getShareInfo = useSetAtom(getShareInfoAtom);
   const deleteShareLink = useSetAtom(deleteShareLinkAtom);
-
-  // Check if data is loading from any source
-  const isLoading = loadableData.state === "loading";
 
   // Mobile detection state
   const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
@@ -307,7 +304,7 @@ export default function FilesTable({}: FilesTableProps) {
       onOk: async () => {
         try {
           await deleteFile(file.name);
-          // No need to manually refresh - the atom does it
+          refresh();
         } catch (err) {
           const error = err as Error;
           Modal.error({
@@ -437,7 +434,7 @@ export default function FilesTable({}: FilesTableProps) {
             onOk: async () => {
               try {
                 await moveFile({ fileName: currentFilePath, destinationUrl });
-                // No need to manually refresh - the atom does it
+                refresh();
               } catch (err) {
                 const error = err as Error;
                 Modal.error({
@@ -451,7 +448,7 @@ export default function FilesTable({}: FilesTableProps) {
         }
 
         await moveFile({ fileName: currentFilePath, destinationUrl });
-        // No need to manually refresh - the atom does it
+        refresh();
       } catch (err) {
         const error = err as Error;
         Modal.error({
@@ -621,9 +618,7 @@ export default function FilesTable({}: FilesTableProps) {
       icon: <DownloadOutlined />,
       label: (
         <a
-          href={
-            path + (isDir && permissions.allow_archive ? "?zip" : "?download")
-          }
+          href={path + (isDir ? "?zip" : "?download")}
           download
           onClick={(e) => e.stopPropagation()}
         >
@@ -632,36 +627,36 @@ export default function FilesTable({}: FilesTableProps) {
       ),
     });
 
-    if (permissions.allow_upload && permissions.allow_delete) {
-      items.push({
-        key: "rename",
-        icon: <EditOutlined />,
-        label: "Rename",
-        onClick: () => {
-          handleRename(file);
-        },
-      });
-      items.push({
-        key: "move",
-        icon: <DragOutlined />,
-        label: "Move",
-        onClick: () => {
-          handleMove(file);
-        },
-      });
-    }
+    // Rename
+    items.push({
+      key: "rename",
+      icon: <EditOutlined />,
+      label: "Rename",
+      onClick: () => {
+        handleRename(file);
+      },
+    });
 
-    if (permissions.allow_delete) {
-      items.push({
-        key: "delete",
-        icon: <DeleteOutlined />,
-        label: "Delete",
-        danger: true,
-        onClick: () => {
-          handleDelete(file);
-        },
-      });
-    }
+    // Move
+    items.push({
+      key: "move",
+      icon: <DragOutlined />,
+      label: "Move",
+      onClick: () => {
+        handleMove(file);
+      },
+    });
+
+    // Delete
+    items.push({
+      key: "delete",
+      icon: <DeleteOutlined />,
+      label: "Delete",
+      danger: true,
+      onClick: () => {
+        handleDelete(file);
+      },
+    });
 
     return items;
   };
@@ -677,12 +672,7 @@ export default function FilesTable({}: FilesTableProps) {
       key: "download",
       icon: <DownloadOutlined />,
       label: (
-        <a
-          href={
-            path + (isDir && permissions.allow_archive ? "?zip" : "?download")
-          }
-          download
-        >
+        <a href={path + (isDir ? "?zip" : "?download")} download>
           {isDir ? "Download as zip" : "Download"}
         </a>
       ),
@@ -698,32 +688,30 @@ export default function FilesTable({}: FilesTableProps) {
       });
     }
 
-    // Rename and Move
-    if (permissions.allow_upload && permissions.allow_delete) {
-      items.push({
-        key: "rename",
-        icon: <EditOutlined />,
-        label: "Rename",
-        onClick: () => handleRename(file),
-      });
-      items.push({
-        key: "move",
-        icon: <DragOutlined />,
-        label: "Move",
-        onClick: () => handleMove(file),
-      });
-    }
+    // Rename
+    items.push({
+      key: "rename",
+      icon: <EditOutlined />,
+      label: "Rename",
+      onClick: () => handleRename(file),
+    });
+
+    // Move
+    items.push({
+      key: "move",
+      icon: <DragOutlined />,
+      label: "Move",
+      onClick: () => handleMove(file),
+    });
 
     // Delete
-    if (permissions.allow_delete) {
-      items.push({
-        key: "delete",
-        icon: <DeleteOutlined />,
-        label: "Delete",
-        danger: true,
-        onClick: () => handleDelete(file),
-      });
-    }
+    items.push({
+      key: "delete",
+      icon: <DeleteOutlined />,
+      label: "Delete",
+      danger: true,
+      onClick: () => handleDelete(file),
+    });
 
     return items;
   };
@@ -732,7 +720,7 @@ export default function FilesTable({}: FilesTableProps) {
   const renderGridView = () => (
     <div className="px-4 pb-4">
       <Row gutter={[16, 16]}>
-        {paths.map((file) => {
+        {[].map((file: any) => {
           const isDir = file.path_type.endsWith("Dir");
           const path = filePath(file.name) + (isDir ? "/" : "");
 

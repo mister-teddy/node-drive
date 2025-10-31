@@ -1,8 +1,9 @@
 import { clsx } from "clsx";
+import { ReactNode } from "react";
 
 interface BitcoinVerifiedBadgeProps {
   verified?: boolean;
-  text: string | number;
+  text: number | ReactNode;
   className?: string;
 }
 
@@ -37,7 +38,7 @@ export function BtcBadge({
   return (
     <div
       className={clsx(
-        "inline-flex items-center gap-1.5 max-w-full p-2 rounded-lg",
+        "inline-flex items-center gap-1.5 w-full p-2 rounded-lg",
         styles.background,
         styles.shadow,
         "transition-shadow duration-200 hover:shadow-xl",
@@ -60,7 +61,7 @@ export function BtcBadge({
       </div>
 
       {/* Amount display with enhanced typography */}
-      <div className="flex flex-col justify-center text-left">
+      <div className="flex flex-col justify-center text-left space-y-0.5">
         <span className="text-white font-medium text-base leading-tight whitespace-nowrap tracking-wide drop-shadow-sm">
           {formattedAmount}
         </span>

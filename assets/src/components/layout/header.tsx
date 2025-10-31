@@ -5,9 +5,6 @@ import {
   SearchOutlined,
   FolderAddOutlined,
   FileAddOutlined,
-  UserOutlined,
-  LogoutOutlined,
-  LoginOutlined,
   DatabaseOutlined,
   MenuOutlined,
   MoreOutlined,
@@ -17,25 +14,13 @@ import NodeLogo from "../vectors/node-logo.js";
 const { Header: AntHeader } = Layout;
 
 interface HeaderProps {
-  auth: boolean;
-  user: string;
-  allowUpload: boolean;
-  allowSearch: boolean;
   onSearch?: (query: string) => void;
-  onLogin?: () => void;
-  onLogout?: () => void;
   onNewFolder?: () => void;
   onNewFile?: () => void;
 }
 
 export function Header({
-  auth,
-  user,
-  allowUpload,
-  allowSearch,
   onSearch,
-  onLogin,
-  onLogout,
   onNewFolder,
   onNewFile,
 }: HeaderProps) {
@@ -58,53 +43,24 @@ export function Header({
 
   // Mobile actions menu
   const mobileActionsMenu: MenuProps["items"] = [
-    ...(allowUpload
-      ? [
-          {
-            key: "download-db",
-            icon: <DatabaseOutlined />,
-            label: "Download SQLite DB",
-            onClick: handleDownloadDB,
-          },
-          {
-            key: "new-folder",
-            icon: <FolderAddOutlined />,
-            label: "New Folder",
-            onClick: onNewFolder,
-          },
-          {
-            key: "new-file",
-            icon: <FileAddOutlined />,
-            label: "New File",
-            onClick: onNewFile,
-          },
-        ]
-      : []),
-    ...(auth && user
-      ? [
-          {
-            key: "user",
-            icon: <UserOutlined />,
-            label: `${user}`,
-            disabled: true,
-          },
-          {
-            key: "logout",
-            icon: <LogoutOutlined />,
-            label: "Logout",
-            onClick: onLogout,
-          },
-        ]
-      : auth
-      ? [
-          {
-            key: "login",
-            icon: <LoginOutlined />,
-            label: "Login",
-            onClick: onLogin,
-          },
-        ]
-      : []),
+    {
+      key: "download-db",
+      icon: <DatabaseOutlined />,
+      label: "Download SQLite DB",
+      onClick: handleDownloadDB,
+    },
+    {
+      key: "new-folder",
+      icon: <FolderAddOutlined />,
+      label: "New Folder",
+      onClick: onNewFolder,
+    },
+    {
+      key: "new-file",
+      icon: <FileAddOutlined />,
+      label: "New File",
+      onClick: onNewFile,
+    },
   ];
 
   return (
@@ -131,74 +87,56 @@ export function Header({
         </div>
 
         {/* Desktop Search Bar */}
-        {allowSearch && (
-          <div className="hidden md:flex flex-1 max-w-[500px]">
+        <div className="hidden md:flex flex-1 max-w-[500px]">
+          <Input
+            placeholder="Search files and folders..."
+            prefix={<SearchOutlined />}
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            onPressEnter={handleSearch}
+            allowClear
+          />
+        </div>
+
+        {/* Mobile Search Toggle */}
+        <div className="md:hidden flex-1 flex justify-end">
+          {showMobileSearch ? (
             <Input
-              placeholder="Search files and folders..."
+              placeholder="Search..."
               prefix={<SearchOutlined />}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               onPressEnter={handleSearch}
+              onBlur={() => !searchQuery && setShowMobileSearch(false)}
+              autoFocus
               allowClear
+              className="w-full"
             />
-          </div>
-        )}
-
-        {/* Mobile Search Toggle */}
-        {allowSearch && (
-          <div className="md:hidden flex-1 flex justify-end">
-            {showMobileSearch ? (
-              <Input
-                placeholder="Search..."
-                prefix={<SearchOutlined />}
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                onPressEnter={handleSearch}
-                onBlur={() => !searchQuery && setShowMobileSearch(false)}
-                autoFocus
-                allowClear
-                className="w-full"
-              />
-            ) : (
-              <Button
-                type="text"
-                icon={<SearchOutlined />}
-                onClick={() => setShowMobileSearch(true)}
-              />
-            )}
-          </div>
-        )}
+          ) : (
+            <Button
+              type="text"
+              icon={<SearchOutlined />}
+              onClick={() => setShowMobileSearch(true)}
+            />
+          )}
+        </div>
 
         {/* Desktop Actions */}
         <div className="hidden md:flex flex-1 justify-end">
           <Space>
-            {allowUpload && (
-              <>
-                <Button
-                  type="dashed"
-                  icon={<DatabaseOutlined />}
-                  onClick={handleDownloadDB}
-                >
-                  Download SQLite DB
-                </Button>
-                <Button icon={<FolderAddOutlined />} onClick={onNewFolder}>
-                  New Folder
-                </Button>
-                <Button icon={<FileAddOutlined />} onClick={onNewFile}>
-                  New File
-                </Button>
-              </>
-            )}
-
-            {auth && user ? (
-              <Button icon={<UserOutlined />} onClick={onLogout} type="text">
-                {user} <LogoutOutlined />
-              </Button>
-            ) : auth ? (
-              <Button icon={<LoginOutlined />} onClick={onLogin} type="text">
-                Login
-              </Button>
-            ) : null}
+            <Button
+              type="dashed"
+              icon={<DatabaseOutlined />}
+              onClick={handleDownloadDB}
+            >
+              Download SQLite DB
+            </Button>
+            <Button icon={<FolderAddOutlined />} onClick={onNewFolder}>
+              New Folder
+            </Button>
+            <Button icon={<FileAddOutlined />} onClick={onNewFile}>
+              New File
+            </Button>
           </Space>
         </div>
 
@@ -223,78 +161,39 @@ export function Header({
         width={280}
       >
         <Space direction="vertical" className="w-full" size="large">
-          {/* User Info */}
-          {auth && user && (
-            <div className="p-3 bg-gray-100 rounded">
-              <div className="flex items-center gap-2">
-                <UserOutlined className="text-lg" />
-                <span className="font-medium">{user}</span>
-              </div>
-            </div>
-          )}
-
           {/* Actions */}
-          {allowUpload && (
-            <Space direction="vertical" className="w-full">
-              <Button
-                block
-                icon={<DatabaseOutlined />}
-                onClick={() => {
-                  handleDownloadDB();
-                  setMobileDrawerOpen(false);
-                }}
-              >
-                Download SQLite DB
-              </Button>
-              <Button
-                block
-                icon={<FolderAddOutlined />}
-                onClick={() => {
-                  onNewFolder?.();
-                  setMobileDrawerOpen(false);
-                }}
-              >
-                New Folder
-              </Button>
-              <Button
-                block
-                icon={<FileAddOutlined />}
-                onClick={() => {
-                  onNewFile?.();
-                  setMobileDrawerOpen(false);
-                }}
-              >
-                New File
-              </Button>
-            </Space>
-          )}
-
-          {/* Auth Actions */}
-          {auth && user ? (
+          <Space direction="vertical" className="w-full">
             <Button
               block
-              danger
-              icon={<LogoutOutlined />}
+              icon={<DatabaseOutlined />}
               onClick={() => {
-                onLogout?.();
+                handleDownloadDB();
                 setMobileDrawerOpen(false);
               }}
             >
-              Logout
+              Download SQLite DB
             </Button>
-          ) : auth ? (
             <Button
               block
-              type="primary"
-              icon={<LoginOutlined />}
+              icon={<FolderAddOutlined />}
               onClick={() => {
-                onLogin?.();
+                onNewFolder?.();
                 setMobileDrawerOpen(false);
               }}
             >
-              Login
+              New Folder
             </Button>
-          ) : null}
+            <Button
+              block
+              icon={<FileAddOutlined />}
+              onClick={() => {
+                onNewFile?.();
+                setMobileDrawerOpen(false);
+              }}
+            >
+              New File
+            </Button>
+          </Space>
         </Space>
       </Drawer>
     </>

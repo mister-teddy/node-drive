@@ -54,3 +54,18 @@ export interface OtsInfo {
   file_hash: string;
   operations: string[];
 }
+
+export interface LsDirData {
+  href: string;
+  uri_prefix: string;
+  kind: "Index" | "Edit" | "View";
+  paths: PathItem[];
+  allow_upload: boolean;
+  allow_delete: boolean;
+  allow_search: boolean;
+  allow_archive: boolean;
+  auth: boolean;
+  user: string;
+  dir_exists: boolean;
+  editable: string;
+}

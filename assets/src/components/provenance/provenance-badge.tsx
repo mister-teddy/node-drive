@@ -27,7 +27,7 @@ export function ProvenanceBadge({ stamp, onClick }: ProvenanceBadgeProps) {
       return [
         true,
         stamp.verified_height ?? 0,
-        `Verified on Bitcoin block ${formatBlockNumber(
+        `This file's authorship proof was verified on Bitcoin block ${formatBlockNumber(
           stamp.verified_height ?? 0
         )} on ${new Date(
           (stamp.verified_timestamp ?? 0) * 1000
@@ -40,7 +40,11 @@ export function ProvenanceBadge({ stamp, onClick }: ProvenanceBadgeProps) {
       ];
     }
 
-    return [false, "Pending", "This file is pending verification"];
+    return [
+      false,
+      <span className="text-sm">Pending</span>,
+      "This file's authorship proof is pending verification on Bitcoin. Estimated completion: 1-12 hours.",
+    ];
   }, [stamp]);
 
   return (
