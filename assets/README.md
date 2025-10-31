@@ -90,7 +90,7 @@ The codebase has been converted from vanilla JavaScript with JSDoc types to prop
 
 3. **provenance.tsx**: Component that displays digital provenance stamps (OpenTimestamps verification) with expandable details.
 
-4. **utils.ts**: Utility functions for SHA-256 hashing, file size formatting, date formatting, clipboard operations, and MobX store integration.
+4. **utils.ts**: Utility functions for SHA-256 hashing, file size formatting, date formatting, clipboard operations.
 
 ## Dependencies
 
@@ -98,7 +98,7 @@ The codebase has been converted from vanilla JavaScript with JSDoc types to prop
 
 - `react@18.3.1` - React library
 - `react-dom@18.3.1` - React DOM renderer
-- `mobx@6.15.0` - Observable state management
+- `jotai@2.15.0` - State management library
 
 ### Dev Dependencies
 
@@ -116,6 +116,7 @@ The codebase has been converted from vanilla JavaScript with JSDoc types to prop
 The application includes a modern file preview drawer (similar to Dropbox) that allows users to preview files without leaving the current page.
 
 **Supported file types:**
+
 - 📸 **Images:** jpg, jpeg, png, gif, svg, webp, bmp, ico (with zoom)
 - 📄 **PDFs:** Inline preview with native browser controls
 - 📝 **Text/Code:** txt, md, json, xml, yaml, js, ts, py, go, rs, and more
@@ -123,6 +124,7 @@ The application includes a modern file preview drawer (similar to Dropbox) that 
 - 🎵 **Audio:** mp3, wav, ogg, m4a, flac (with playback controls)
 
 **Usage:** Click any file in the file table to open the preview drawer. The drawer includes:
+
 - File preview (if supported)
 - Download button
 - "Open in New Tab" option
@@ -154,6 +156,7 @@ pnpm test:report
 ```
 
 **Test Coverage:**
+
 - ✅ File upload (single, multiple, large files)
 - ✅ Folder operations (create, navigate, delete)
 - ✅ File operations (view, download, delete, move)

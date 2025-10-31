@@ -11,7 +11,7 @@ import { useMemo } from "react";
 import { useAtomValue } from "jotai";
 import { loadable } from "jotai/utils";
 import { apiPath } from "../utils";
-import { fileContentAtomFamily } from "../state";
+import { fileContentAtomFamily } from "../state/rest";
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -80,18 +80,25 @@ export default function FilePreviewDrawer({
 
   // Create loadable atom for file content
   const fileContentAtom = useMemo(
-    () => shouldLoadContent && fileName ? loadable(fileContentAtomFamily(fileName)) : null,
+    () =>
+      shouldLoadContent && fileName
+        ? loadable(fileContentAtomFamily(fileName))
+        : null,
     [shouldLoadContent, fileName]
   );
 
-  const fileContentLoadable = fileContentAtom ? useAtomValue(fileContentAtom) : null;
+  const fileContentLoadable = fileContentAtom
+    ? useAtomValue(fileContentAtom)
+    : null;
 
   // Derive state from loadable
   const loading = fileContentLoadable?.state === "loading";
-  const content = fileContentLoadable?.state === "hasData" ? fileContentLoadable.data : null;
-  const error = fileContentLoadable?.state === "hasError"
-    ? `Failed to load file: ${(fileContentLoadable.error as Error).message}`
-    : null;
+  const content =
+    fileContentLoadable?.state === "hasData" ? fileContentLoadable.data : null;
+  const error =
+    fileContentLoadable?.state === "hasError"
+      ? `Failed to load file: ${(fileContentLoadable.error as Error).message}`
+      : null;
 
   const renderPreview = () => {
     if (loading) {
@@ -159,11 +166,7 @@ export default function FilePreviewDrawer({
     if (isVideo) {
       return (
         <div className="py-5">
-          <video
-            src={fileUrl}
-            controls
-            className="w-full rounded bg-black"
-          >
+          <video src={fileUrl} controls className="w-full rounded bg-black">
             Your browser does not support the video tag.
           </video>
         </div>
@@ -177,11 +180,7 @@ export default function FilePreviewDrawer({
           <div className="mb-6">
             <FileOutlined style={{ fontSize: 64, color: "#d9d9d9" }} />
           </div>
-          <audio
-            src={fileUrl}
-            controls
-            className="w-full max-w-[500px]"
-          >
+          <audio src={fileUrl} controls className="w-full max-w-[500px]">
             Your browser does not support the audio tag.
           </audio>
         </div>

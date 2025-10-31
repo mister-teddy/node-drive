@@ -48,7 +48,7 @@ import {
   getShareInfoAtom,
   deleteShareLinkAtom,
   type ShareInfoItem,
-} from "../state";
+} from "../state/rest";
 
 export interface PathItem {
   path_type: "Dir" | "SymlinkDir" | "File" | "SymlinkFile";
@@ -203,10 +203,18 @@ export default function FilesTable({}: FilesTableProps) {
   const renderVerificationStamps = (file: PathItem) => {
     return (
       <Provenance
-        fileName={file.name}
-        defaultMode="summary"
-        isDir={false}
-        stampStatus={file.stamp_status}
+        file={{
+          type: "uploaded",
+          filePath: file.name,
+        }}
+        cachedResult={{
+          status: file.stamp_status?.success ? "verified" : "pending",
+          sha256_hex: file.stamp_status?.sha256_hex || "",
+          verified_chain: "bitcoin",
+          verified_timestamp:
+            file.stamp_status?.results?.bitcoin.timestamp || 0,
+          verified_height: file.stamp_status?.results?.bitcoin.height || 0,
+        }}
       />
     );
   };

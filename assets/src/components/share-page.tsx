@@ -27,7 +27,7 @@ import {
   HomeOutlined,
 } from "@ant-design/icons";
 import Provenance from "./provenance";
-import { shareInfoAtomFamily } from "../state";
+import { shareInfoAtomFamily } from "../state/rest";
 
 const { Title, Text, Paragraph } = Typography;
 const { Content } = Layout;
@@ -38,7 +38,7 @@ function SharePage() {
 
   // Create loadable atom for share info
   const shareInfoAtom = useMemo(
-    () => shareId ? loadable(shareInfoAtomFamily(shareId)) : null,
+    () => (shareId ? loadable(shareInfoAtomFamily(shareId)) : null),
     [shareId]
   );
 
@@ -49,9 +49,11 @@ function SharePage() {
   const error = !shareId
     ? "Invalid share link"
     : shareInfoLoadable?.state === "hasError"
-      ? (shareInfoLoadable.error as Error).message || "Failed to load share information"
-      : null;
-  const shareInfo = shareInfoLoadable?.state === "hasData" ? shareInfoLoadable.data : null;
+    ? (shareInfoLoadable.error as Error).message ||
+      "Failed to load share information"
+    : null;
+  const shareInfo =
+    shareInfoLoadable?.state === "hasData" ? shareInfoLoadable.data : null;
 
   const [downloading, setDownloading] = useState(false);
 
@@ -146,13 +148,16 @@ function SharePage() {
   return (
     <Layout className="min-h-screen bg-gray-100">
       <Content className="flex justify-center items-center min-h-screen px-3 py-4">
-        <Card className="max-w-3xl w-full" styles={{ body: { padding: "24px 16px" } }}>
+        <Card
+          className="max-w-3xl w-full"
+          styles={{ body: { padding: "24px 16px" } }}
+        >
           {/* Header */}
           <div className="text-center mb-6">
             <FileOutlined className="text-5xl text-blue-500 mb-3" />
             <Title
               level={2}
-              className="mb-2 text-xl sm:text-2xl md:text-3xl break-words hyphens-auto"
+              className="mb-2 text-xl sm:text-2xl md:text-3xl wrap-break-word hyphens-auto"
             >
               {fileName}
             </Title>
@@ -160,13 +165,7 @@ function SharePage() {
               Someone shared this file with you
             </Text>
             <div className="mt-3">
-              <Provenance
-                fileName={fileName}
-                defaultMode="summary"
-                isDir={false}
-                stampStatus={shareInfo.stamp_status}
-                shareId={shareId}
-              />
+              <Provenance file={{ type: "shared", shareId }} />
             </div>
           </div>
 
@@ -188,7 +187,11 @@ function SharePage() {
               {sharedDate}
             </Descriptions.Item>
             <Descriptions.Item label="Share ID">
-              <Text code copyable={{ text: shareInfo.share_id }} className="text-[10px]">
+              <Text
+                code
+                copyable={{ text: shareInfo.share_id }}
+                className="text-[10px]"
+              >
                 {shareInfo.share_id}
               </Text>
             </Descriptions.Item>

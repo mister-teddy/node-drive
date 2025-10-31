@@ -40,6 +40,7 @@ fn main() {
     let build_status = Command::new("pnpm")
         .arg("run")
         .arg("build")
+        .env("NODE_ENV", "development")
         .current_dir(assets_dir)
         .status()
         .expect("Failed to execute pnpm build");

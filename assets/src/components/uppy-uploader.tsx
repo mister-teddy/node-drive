@@ -12,9 +12,9 @@ import {
   filePickerTriggerAtom,
   showDashboardAtom,
   setIsDraggingOverWithDelay,
-} from "../store/uppyStore";
+} from "../state/uppy";
 import { apiPath } from "../utils";
-import { dataAtom } from "../state";
+import { dataAtom } from "../state/rest";
 
 interface UppyUploaderProps {
   auth: boolean;

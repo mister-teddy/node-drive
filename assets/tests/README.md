@@ -48,56 +48,43 @@ pnpm test:debug
 pnpm test:report
 ```
 
+### Test against VPS deployment
+
+```bash
+VPS_URL=http://your-vps:8080 pnpm test
+```
+
 ## Test Suites
 
-### 1. Upload Tests (`upload.spec.ts`)
+### Workflow Integration Test (`workflow.spec.ts`)
 
-- Single file upload
-- Multiple file upload
-- Upload progress indication
+Complete user workflow test that validates core functionality:
 
-### 2. Folder Operations (`folder.spec.ts`)
+- **Upload files**: Multiple files uploaded via file input
+- **View files**: Files displayed in table with metadata
+- **Delete files**: Delete operation with confirmation modal
+- **Verify state**: Final state validation
 
-- Create new folder
-- Navigate into folders
-- Breadcrumb navigation
-- Delete empty folders
+This test runs with a **fresh temporary directory** to ensure a clean testing environment.
 
-### 3. File Operations (`file-operations.spec.ts`)
-
-- View file in browser
-- Download file
-- Delete file
-- Move/rename file
-- Display file size
-- Display modification time
-
-### 4. Navigation Tests (`navigation.spec.ts`)
-
-- Home page load
-- Breadcrumb display
-- Browser back/forward navigation
-- URL updates on directory changes
-- Content refresh on navigation
-
-### 5. Provenance Tests (`provenance.spec.ts`)
-
-- Display verification badges
-- Open provenance modal
-- Loading states
-- Folder vs file verification
-- Download manifest JSON
-- Hash display
+**What it validates:**
+1. Blank server starts correctly
+2. File upload works (multiple files at once)
+3. Files appear in listing with correct metadata
+4. Delete confirmation modal works
+5. File deletion works correctly
+6. Final state is accurate
 
 ## Test Configuration
 
 The tests are configured to:
 
-- Run against `http://127.0.0.1:5000`
-- Auto-start the Rust server before tests
+- **Local testing**: Auto-start server with fresh temp directory at `/tmp/node-drive-test-*`
+- **VPS testing**: Skip local server, test against `VPS_URL` environment variable
 - Run sequentially to avoid file operation conflicts
 - Capture screenshots on failure
 - Generate HTML reports
+- Support retries in CI (3 retries for network flakiness)
 
 ## Prerequisites
 
@@ -105,20 +92,16 @@ Before running tests, ensure:
 
 1. The Rust project builds successfully: `cargo build`
 2. The frontend builds successfully: `pnpm build`
-3. Port 5000 is available
+3. Port 5000 is available (for local testing)
 
 ## CI/CD Integration
 
-To run in CI environments:
+The workflow test runs automatically in GitHub Actions:
 
-```bash
-CI=true pnpm test
-```
+1. **Local testing** (pre-merge): `pnpm test` in CI
+2. **VPS deployment testing** (post-deploy): `VPS_URL=http://vps:8080 pnpm test workflow.spec.ts`
 
-This enables:
-- Retries on flaky tests
-- Stricter error handling
-- HTML report generation
+This ensures functionality works both locally and on deployed infrastructure.
 
 ## Troubleshooting
 
@@ -127,7 +110,7 @@ This enables:
 Make sure no server is running on port 5000:
 
 ```bash
-lsof -ti:5000 | xargs kill -9
+killall node-drive 2>/dev/null
 ```
 
 ### Browser not found
@@ -140,35 +123,30 @@ pnpm exec playwright install
 
 ### Timeout errors
 
-Increase timeout in `playwright.config.ts`:
-
-```typescript
-use: {
-  timeout: 30000, // 30 seconds
-}
-```
+Increase timeout in test or playwright config. VPS tests automatically use longer timeouts.
 
 ## Writing New Tests
 
 Follow these patterns:
 
-1. **Use unique identifiers**: Generate unique names with timestamps to avoid conflicts
-2. **Clean up after tests**: Use `afterEach` hooks to delete test files/folders
-3. **Handle dialogs**: Use `page.once('dialog', ...)` for prompts and confirms
-4. **Wait for actions**: Always wait for elements/navigation after actions
-5. **Verify state**: Check both UI changes and backend state
+1. **Use temp files**: Create test files in a temp directory
+2. **Clean up**: Use `beforeAll`/`afterAll` hooks for setup/cleanup
+3. **Use precise selectors**: Target elements with specific locators
+4. **Wait for state**: Always wait for elements/modals before interacting
+5. **Verify changes**: Check both UI state and expected outcomes
 
 Example:
 
 ```typescript
-test('should do something', async ({ page }) => {
-  const testName = `test-${Date.now()}`;
+test('should upload file', async ({ page }) => {
+  const testFile = path.join(testDir, 'test.txt');
 
-  try {
-    // Test code here
+  const fileInput = page.locator('input[type="file"]');
+  await fileInput.setInputFiles(testFile);
 
-  } finally {
-    // Cleanup code here
-  }
+  await page.locator('button:has-text("Upload")').click();
+  await page.waitForTimeout(1000);
+
+  await expect(page.locator('text=test.txt')).toBeVisible();
 });
 ```

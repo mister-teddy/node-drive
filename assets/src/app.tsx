@@ -7,7 +7,7 @@ import { Header } from "./components/layout/header";
 import { Breadcrumb } from "./components/layout/breadcrumb";
 import UppyUploader from "./components/uppy-uploader";
 import SharePage from "./components/share-page";
-import { filePickerTriggerAtom } from "./store/uppyStore";
+import { filePickerTriggerAtom } from "./state/uppy";
 import { apiPath } from "./utils";
 import {
   currentLocationAtom,
@@ -15,12 +15,12 @@ import {
   metadataAtom,
   authAtom,
   permissionsAtom,
-} from "./state";
+} from "./state/rest";
 
 const { Content } = Layout;
 
 // Re-export types for components
-export type { PathItem, DATA } from "./state";
+export type { PathItem, DATA } from "./state/rest";
 
 // Main content component wrapped in Suspense
 function AppContent() {

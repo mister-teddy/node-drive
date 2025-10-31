@@ -1,6 +1,5 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, Suspense } from "react";
 import { useAtomValue } from "jotai";
-import { loadable } from "jotai/utils";
 import {
   Tag,
   Modal,
@@ -14,6 +13,7 @@ import {
   type DescriptionsProps,
   Steps,
   Badge,
+  Skeleton,
 } from "antd";
 import {
   ClockCircleOutlined,
@@ -23,77 +23,18 @@ import {
   CopyOutlined,
 } from "@ant-design/icons";
 import { useSpring, animated } from "@react-spring/web";
-import OtsViewer from "./ots-viewer";
-import { manifestAtomFamily, otsInfoAtomFamily } from "../state";
+import { OtsViewerFromFile } from "../ots-viewer";
+import { manifestAtomFamily } from "../../state/provenance";
+import { ProvenanceModalProps } from "./types";
 
 const { Text, Paragraph } = Typography;
 
-interface StampStatus {
-  success: boolean;
-  results?: {
-    bitcoin: {
-      timestamp: number;
-      height: number;
-    };
-  };
-  error?: string;
-  sha256_hex?: string;
-}
-
-interface ProvenanceProps {
-  fileName: string;
-  defaultMode?: "full" | "summary";
-  isDir?: boolean;
-  stampStatus?: StampStatus | string;
-  shareId?: string;
-}
-
-export default function Provenance({
-  fileName,
-  isDir = false,
-  stampStatus,
-  shareId,
-}: ProvenanceProps) {
-  // Create loadable atoms - ALWAYS created to comply with Rules of Hooks
-  const manifestAtom = useMemo(
-    () => loadable(manifestAtomFamily({ fileName, shareId })),
-    [fileName, shareId]
-  );
-  const otsInfoAtom = useMemo(
-    () => loadable(otsInfoAtomFamily({ fileName, shareId })),
-    [fileName, shareId]
-  );
-
-  // ALWAYS call hooks unconditionally (Rules of Hooks)
-  const manifestLoadable = useAtomValue(manifestAtom);
-  const otsInfoLoadable = useAtomValue(otsInfoAtom);
-
-  // Derive manifest and loading states from loadable
-  // For directories, just ignore the results
-  const manifest =
-    !isDir && manifestLoadable?.state === "hasData"
-      ? manifestLoadable.data
-      : null;
-  const isLoading =
-    !isDir && manifestLoadable?.state === "loading" ? true : false;
-
-  // Derive OTS info and loading states from loadable
-  const otsInfo =
-    !isDir && otsInfoLoadable?.state === "hasData"
-      ? otsInfoLoadable.data
-      : null;
-  const isLoadingOtsInfo =
-    !isDir && otsInfoLoadable?.state === "loading" ? true : false;
-
-  const [isModalVisible, setIsModalVisible] = useState(false);
+export function ProvenanceModal({ onClose, file }: ProvenanceModalProps) {
   const [expandedHashes, setExpandedHashes] = useState<{
     [key: string]: boolean;
   }>({});
   const [isFlipped, setIsFlipped] = useState(false);
-  const isPending =
-    (typeof stampStatus === "string" ||
-      (stampStatus && !stampStatus.success)) &&
-    !manifest?.artifact?.verified_timestamp;
+  const manifest = useAtomValue(manifestAtomFamily(file));
 
   // Spring animation for card flip
   const { transform } = useSpring({
@@ -117,172 +58,9 @@ export default function Provenance({
     setExpandedHashes((prev) => ({ ...prev, [hashId]: !prev[hashId] }));
   };
 
-  // Log errors if any
-  useEffect(() => {
-    if (manifestLoadable?.state === "hasError") {
-      console.error(
-        `Failed to fetch provenance for ${fileName}:`,
-        manifestLoadable.error
-      );
-    }
-  }, [manifestLoadable, fileName]);
-
-  useEffect(() => {
-    if (otsInfoLoadable?.state === "hasError") {
-      console.error(
-        `Failed to fetch OTS info for ${fileName}:`,
-        otsInfoLoadable.error
-      );
-    }
-  }, [otsInfoLoadable, fileName]);
-
-  const handleModalOpen = () => {
-    // Data will load automatically when atoms are subscribed
-    setIsModalVisible(true);
-  };
-
   const handleModalClose = () => {
     setIsFlipped(false); // Reset flip state when closing
-    setIsModalVisible(false);
-  };
-
-  // Render summary view
-  const renderSummary = () => {
-    // Show stamp if we have stampStatus
-    if (
-      !stampStatus &&
-      (!manifest || !manifest.events || manifest.events.length === 0)
-    ) {
-      return (
-        <Text type="secondary" className="text-[11px]">
-          —
-        </Text>
-      );
-    }
-
-    const stampStatusObj = typeof stampStatus === "string" ? null : stampStatus;
-
-    return (
-      <div onClick={handleModalOpen} className="inline-block cursor-pointer">
-        <Tooltip
-          title={
-            isPending
-              ? "Pending verification"
-              : `Verified on Bitcoin block ${
-                  stampStatusObj?.results?.bitcoin.height
-                } on ${new Date(
-                  (stampStatusObj?.results?.bitcoin.timestamp || 0) * 1000
-                ).toLocaleDateString("en-US", {
-                  month: "short",
-                  day: "numeric",
-                  year: "numeric",
-                })}`
-          }
-        >
-          <Tag
-            color={isPending ? "orange" : "green"}
-            className="relative transition-all hover:scale-105 px-1.5! py-1!"
-          >
-            <Space direction="vertical" size={0} className="w-full text-center">
-              {/* Bitcoin shield badge - verified or pending */}
-              <div className="text-base font-bold">
-                {isLoading ? (
-                  <Spin size="small" />
-                ) : (
-                  <div className="relative inline-flex items-center justify-center">
-                    {/* Shield background */}
-                    <svg
-                      width="24"
-                      height="28"
-                      viewBox="0 0 24 28"
-                      className="absolute"
-                      style={{
-                        filter: "drop-shadow(0 2px 4px rgba(0,0,0,0.15))",
-                      }}
-                    >
-                      <defs>
-                        <linearGradient
-                          id={
-                            isPending
-                              ? "shieldGradientPending"
-                              : "shieldGradientVerified"
-                          }
-                          x1="0%"
-                          y1="0%"
-                          x2="0%"
-                          y2="100%"
-                        >
-                          {isPending ? (
-                            <>
-                              <stop
-                                offset="0%"
-                                style={{ stopColor: "#fb923c", stopOpacity: 1 }}
-                              />
-                              <stop
-                                offset="100%"
-                                style={{ stopColor: "#f97316", stopOpacity: 1 }}
-                              />
-                            </>
-                          ) : (
-                            <>
-                              <stop
-                                offset="0%"
-                                style={{ stopColor: "#f97316", stopOpacity: 1 }}
-                              />
-                              <stop
-                                offset="100%"
-                                style={{ stopColor: "#ea580c", stopOpacity: 1 }}
-                              />
-                            </>
-                          )}
-                        </linearGradient>
-                      </defs>
-                      <path
-                        d="M12 2 L22 6 L22 14 C22 20 12 26 12 26 C12 26 2 20 2 14 L2 6 Z"
-                        fill={
-                          isPending
-                            ? "url(#shieldGradientPending)"
-                            : "url(#shieldGradientVerified)"
-                        }
-                        stroke={isPending ? "#ea580c" : "#c2410c"}
-                        strokeWidth="0.5"
-                      />
-                    </svg>
-                    {/* Icon on top of shield */}
-                    <span
-                      className="relative text-white font-bold z-10"
-                      style={{ marginTop: "2px" }}
-                    >
-                      {isPending ? (
-                        <ClockCircleOutlined className="text-[13px]" />
-                      ) : (
-                        <span
-                          className="text-[13px]"
-                          style={{ fontFamily: "monospace" }}
-                        >
-                          ₿
-                        </span>
-                      )}
-                    </span>
-                  </div>
-                )}
-              </div>
-
-              {/* Block or Hash info - only show if verified */}
-              {!isPending && stampStatusObj?.results?.bitcoin ? (
-                <Text strong className={`text-[10px]! text-green-700!`}>
-                  {stampStatusObj.results.bitcoin.height.toLocaleString()}
-                </Text>
-              ) : (
-                <Text strong className={`text-[10px]! text-orange-700!`}>
-                  #{stampStatusObj?.sha256_hex?.slice(0, 6)}•
-                </Text>
-              )}
-            </Space>
-          </Tag>
-        </Tooltip>
-      </div>
-    );
+    onClose();
   };
 
   // Render simple side of card (like the badge, user-friendly)
@@ -298,7 +76,7 @@ export default function Provenance({
       );
     }
 
-    const stampStatusObj = typeof stampStatus === "string" ? null : stampStatus;
+    const isPending = manifest.artifact?.verified_height ? false : true;
     const firstEvent = manifest.events?.[0];
     const creatorPubkey = firstEvent?.actors?.creator_pubkey_hex || "";
 
@@ -334,8 +112,7 @@ export default function Provenance({
         key: "bitcoin",
         label: (
           <Space size={8}>
-            {stampStatusObj?.success ||
-            manifest.artifact?.verified_timestamp ? (
+            {!isPending ? (
               <CheckCircleOutlined className="text-green-500" />
             ) : (
               <ClockCircleOutlined className="text-orange-500" />
@@ -343,24 +120,15 @@ export default function Provenance({
             <span>Bitcoin</span>
           </Space>
         ),
-        children:
-          stampStatusObj?.success && stampStatusObj.results
-            ? `Verified ${new Date(
-                stampStatusObj.results.bitcoin.timestamp * 1000
-              ).toLocaleDateString("en-US", {
-                month: "short",
-                day: "numeric",
-                year: "numeric",
-              })}`
-            : manifest.artifact?.verified_timestamp
-            ? `Verified ${new Date(
-                manifest.artifact.verified_timestamp * 1000
-              ).toLocaleDateString("en-US", {
-                month: "short",
-                day: "numeric",
-                year: "numeric",
-              })}`
-            : "Pending confirmation",
+        children: manifest.artifact?.verified_timestamp
+          ? `Verified ${new Date(
+              manifest.artifact.verified_timestamp * 1000
+            ).toLocaleDateString("en-US", {
+              month: "short",
+              day: "numeric",
+              year: "numeric",
+            })}`
+          : "Pending confirmation",
       },
     ];
 
@@ -414,9 +182,9 @@ export default function Provenance({
     }
 
     const hash = manifest.artifact?.sha256_hex || "";
-    const stampStatusObj = typeof stampStatus === "string" ? null : stampStatus;
     const firstEvent = manifest.events?.[0];
     const creatorPubkey = firstEvent?.actors?.creator_pubkey_hex || "";
+    const isPending = manifest.artifact?.verified_height ? false : true;
 
     // Tab 1: Cryptographic Details
     const cryptoItems: DescriptionsProps["items"] = [
@@ -485,29 +253,20 @@ export default function Provenance({
             },
           ]
         : []),
-      ...(stampStatusObj || manifest.artifact?.verified_height
-        ? [
-            {
-              key: "bitcoin",
-              label: "Bitcoin Block",
-              children:
-                stampStatusObj?.success && stampStatusObj.results ? (
-                  <Tag color="success" icon={<CheckCircleOutlined />}>
-                    Block #{stampStatusObj.results.bitcoin.height}
-                  </Tag>
-                ) : manifest.artifact?.verified_height ? (
-                  <Tag color="success" icon={<CheckCircleOutlined />}>
-                    Block #{manifest.artifact.verified_height}
-                  </Tag>
-                ) : (
-                  <Tag color="warning" icon={<ClockCircleOutlined />}>
-                    Pending
-                  </Tag>
-                ),
-            },
-          ]
-        : []),
-      ...(firstEvent?.ots_proof_b64 && firstEvent.ots_proof_b64 !== "N/A"
+      {
+        key: "bitcoin",
+        label: "Bitcoin Block",
+        children: isPending ? (
+          <Tag color="warning" icon={<ClockCircleOutlined />}>
+            Pending
+          </Tag>
+        ) : (
+          <Tag color="success" icon={<CheckCircleOutlined />}>
+            Block #{manifest.artifact?.verified_height}
+          </Tag>
+        ),
+      },
+      ...(file.type === "uploaded"
         ? [
             {
               key: "ots",
@@ -517,7 +276,7 @@ export default function Provenance({
                   type="link"
                   size="small"
                   icon={<DownloadOutlined />}
-                  href={`${window.location.pathname}${fileName}?ots`}
+                  href={`${window.location.pathname}${file.filePath}?ots`}
                   download
                   className="p-0"
                   onClick={(e) => e.stopPropagation()}
@@ -625,11 +384,9 @@ export default function Provenance({
         label: "Timestamp Proof",
         children: (
           <div onClick={(e) => e.stopPropagation()}>
-            <OtsViewer
-              otsInfo={otsInfo}
-              stampStatus={stampStatus}
-              isLoading={isLoadingOtsInfo}
-            />
+            <Suspense fallback={<Skeleton />}>
+              <OtsViewerFromFile file={file} />
+            </Suspense>
           </div>
         ),
       },
@@ -665,42 +422,39 @@ export default function Provenance({
   };
 
   return (
-    <>
-      {renderSummary()}
-      <Modal
-        title={isFlipped ? `Provenance Details: ${fileName}` : undefined}
-        open={isModalVisible}
-        onCancel={handleModalClose}
-        footer={null}
-        width={700}
-        styles={{
-          body: {
-            padding: 0,
-          },
-          content: {
-            padding: isFlipped ? undefined : 0,
-          },
-        }}
-        modalRender={(modal) => (
-          <animated.div
+    <Modal
+      open
+      title={isFlipped ? `Provenance Details` : undefined}
+      onCancel={handleModalClose}
+      footer={null}
+      width={700}
+      styles={{
+        body: {
+          padding: 0,
+        },
+        content: {
+          padding: isFlipped ? undefined : 0,
+        },
+      }}
+      modalRender={(modal) => (
+        <animated.div
+          style={{
+            transformStyle: "preserve-3d",
+            transform,
+          }}
+        >
+          <div
             style={{
-              transformStyle: "preserve-3d",
-              transform,
+              transform: `scaleX(${isFlipped ? -1 : 1})`,
+              transition: "transform 0.6s",
             }}
           >
-            <div
-              style={{
-                transform: `scaleX(${isFlipped ? -1 : 1})`,
-                transition: "transform 0.6s",
-              }}
-            >
-              {modal}
-            </div>
-          </animated.div>
-        )}
-      >
-        {isFlipped ? renderDetailedSide() : renderSimpleSide()}
-      </Modal>
-    </>
+            {modal}
+          </div>
+        </animated.div>
+      )}
+    >
+      {isFlipped ? renderDetailedSide() : renderSimpleSide()}
+    </Modal>
   );
 }

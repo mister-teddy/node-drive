@@ -1,29 +1,19 @@
-import { Alert, Steps, Typography, Spin, Button, Space } from "antd";
+import { Steps, Typography, Button, Space } from "antd";
 import type { StepProps } from "antd";
 import {
   CheckCircleOutlined,
   ClockCircleOutlined,
   FileTextOutlined,
   LinkOutlined,
-  SafetyOutlined,
   DownOutlined,
   UpOutlined,
 } from "@ant-design/icons";
 import { useState } from "react";
+import { FileProps } from "../type";
+import { useAtomValue } from "jotai";
+import { otsInfoAtomFamily } from "../state/provenance";
 
 const { Text } = Typography;
-
-interface StampStatus {
-  success: boolean;
-  results?: {
-    bitcoin: {
-      timestamp: number;
-      height: number;
-    };
-  };
-  error?: string;
-  sha256_hex?: string;
-}
 
 interface OtsInfo {
   file_hash: string;
@@ -31,71 +21,15 @@ interface OtsInfo {
 }
 
 interface OtsViewerProps {
-  otsInfo: OtsInfo | null;
-  stampStatus?: StampStatus | string;
-  isLoading?: boolean;
+  otsInfo: OtsInfo;
 }
 
-export default function OtsViewer({
-  otsInfo,
-  stampStatus,
-  isLoading = false,
-}: OtsViewerProps) {
-  if (isLoading) {
-    return (
-      <div className="text-center p-5">
-        <Spin />
-      </div>
-    );
-  }
-
-  if (!otsInfo) {
-    return (
-      <Alert
-        message="Timestamp proof not available"
-        description="No timestamp proof found for this file."
-        type="info"
-        showIcon
-        className="text-[11px]"
-      />
-    );
-  }
-
-  const stampStatusObj = typeof stampStatus === "string" ? null : stampStatus;
-  const isVerified = stampStatusObj?.success && stampStatusObj.results;
-
+export default function OtsViewer({ otsInfo }: OtsViewerProps) {
   // Parse operations into steps
-  const steps = parseOperationsToSteps(otsInfo.operations, stampStatusObj);
+  const steps = parseOperationsToSteps(otsInfo.operations);
 
   return (
     <Space direction="vertical" className="w-full" size="large">
-      {/* Status Alert */}
-      {isVerified ? (
-        <Alert
-          message="Verified on Bitcoin Blockchain"
-          description={`This proof is permanent and cryptographically verifiable. Anyone can confirm that this exact file existed on ${new Date(
-            (stampStatusObj?.results?.bitcoin.timestamp || 0) * 1000
-          ).toLocaleDateString("en-US", {
-            month: "long",
-            day: "numeric",
-            year: "numeric",
-          })} by checking Bitcoin block #${
-            stampStatusObj?.results?.bitcoin.height
-          }.`}
-          type="success"
-          showIcon
-          className="text-xs mb-4"
-        />
-      ) : (
-        <Alert
-          message="⏳ Pending Bitcoin Confirmation"
-          description="Your file has been submitted for timestamping. The proof will be complete once it's included in a Bitcoin block (usually within a few hours). Once your timestamp is included in a Bitcoin block, you'll see a green checkmark above. The pending calendar servers shown above are collecting timestamps to batch them into the blockchain."
-          type="warning"
-          showIcon
-          className="text-xs mb-4"
-        />
-      )}
-
       {/* Visual Steps */}
       <Steps
         direction="vertical"
@@ -105,15 +39,18 @@ export default function OtsViewer({
       />
 
       {/* Completion percentage for pending */}
-      {!isVerified && (
-        <div className="mt-4">
-          <Text type="secondary" className="text-[11px]">
-            Progress: {calculateCompletionPercentage(otsInfo.operations)}%
-          </Text>
-        </div>
-      )}
+      <div className="mt-4">
+        <Text type="secondary" className="text-[11px]">
+          Progress: {calculateCompletionPercentage(otsInfo.operations)}%
+        </Text>
+      </div>
     </Space>
   );
+}
+
+export function OtsViewerFromFile({ file }: { file: FileProps }) {
+  const otsInfo = useAtomValue(otsInfoAtomFamily(file));
+  return <OtsViewer otsInfo={otsInfo} />;
 }
 
 /**
@@ -159,12 +96,8 @@ function MerkleTreeOperations({ operations }: { operations: string[] }) {
 /**
  * Parse OTS operations into Steps format
  */
-function parseOperationsToSteps(
-  operations: string[],
-  stampStatus?: StampStatus | null
-): StepProps[] {
+function parseOperationsToSteps(operations: string[]): StepProps[] {
   const steps: StepProps[] = [];
-  const isVerified = stampStatus?.success && stampStatus.results;
 
   // Step 1: File Hash
   steps.push({
@@ -216,7 +149,7 @@ function parseOperationsToSteps(
           </div>
         </div>
       ),
-      status: isVerified ? "finish" : "process",
+      status: "process",
       icon: <ClockCircleOutlined />,
     });
   }
@@ -225,43 +158,16 @@ function parseOperationsToSteps(
   const bitcoinOps = operations.filter((op) => op.includes("Bitcoin"));
   const hasBitcoin = bitcoinOps.length > 0;
 
-  if (hasBitcoin || isVerified) {
+  if (hasBitcoin) {
     steps.push({
       title: "Bitcoin Blockchain",
       description: (
-        <div>
-          {isVerified ? (
-            <>
-              <Text type="secondary" className="text-[11px]">
-                Permanently recorded in block #
-                {stampStatus?.results?.bitcoin.height}
-              </Text>
-              <br />
-              <Text strong className="text-[11px] text-[#52c41a]">
-                {new Date(
-                  (stampStatus?.results?.bitcoin.timestamp || 0) * 1000
-                ).toLocaleString("en-US", {
-                  month: "short",
-                  day: "numeric",
-                  year: "numeric",
-                  hour: "numeric",
-                  minute: "numeric",
-                })}
-              </Text>
-            </>
-          ) : (
-            <Text type="secondary" className="text-[11px]">
-              Waiting for inclusion in a Bitcoin block
-            </Text>
-          )}
-        </div>
+        <Text type="secondary" className="text-[11px]">
+          {bitcoinOps[0]}
+        </Text>
       ),
-      status: isVerified ? "finish" : "wait",
-      icon: isVerified ? (
-        <CheckCircleOutlined className="text-[#52c41a]" />
-      ) : (
-        <SafetyOutlined />
-      ),
+      status: "finish",
+      icon: <CheckCircleOutlined className="text-[#52c41a]" />,
     });
   }
 

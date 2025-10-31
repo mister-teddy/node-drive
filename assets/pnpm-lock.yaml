@@ -32,6 +32,9 @@ importers:
       antd:
         specifier: ^5.27.4
         version: 5.27.4(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      clsx:
+        specifier: ^2.1.1
+        version: 2.1.1
       jotai:
         specifier: ^2.15.0
         version: 2.15.0(@babel/core@7.28.4)(@babel/template@7.27.2)(@types/react@18.3.26)(react@18.3.1)
