@@ -1,6 +1,6 @@
 [package]
 name = "node-drive"
-version = "1.14.0"
+version = "1.14.1"
 edition = "2021"
 authors = ["Mister Teddy <hongphat.js@gmail.com>"]
 description = "Dufs is a distinctive utility file server"
